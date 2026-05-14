@@ -1,9 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base
+import models
+models  # ensure models loaded
 from routers import auth, companies, documents, esf, bank, salary, deadlines, communications, scanner
 
-Base.metadata.create_all(bind=engine)
+
 
 app = FastAPI(title="БухАгент API", version="1.0.0")
 
@@ -24,6 +26,11 @@ app.include_router(bank.router,           prefix="/api/bank",           tags=["b
 app.include_router(salary.router,         prefix="/api/salary",         tags=["salary"])
 app.include_router(deadlines.router,      prefix="/api/deadlines",      tags=["deadlines"])
 app.include_router(communications.router, prefix="/api/communications", tags=["communications"])
+
+@app.on_event("startup")
+async def startup():
+    Base.metadata.create_all(bind=engine)
+    print("Tables created")
 
 @app.get("/")
 def root():
