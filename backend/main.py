@@ -1,12 +1,15 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from database import engine, Base
 from routers import auth, companies, documents, esf, bank, salary, deadlines, communications, scanner
+
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="БухАгент API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # В продакшене заменить на домен фронтенда
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
