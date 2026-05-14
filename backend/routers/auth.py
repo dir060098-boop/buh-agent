@@ -44,7 +44,7 @@ def register(data: UserCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Email already registered")
     user = models.User(
         email=data.email,
-        hashed_password=pwd_context.hash(data.password),
+        hashed_password=pwd_context.hash(data.password[:72]),
         full_name=data.full_name
     )
     db.add(user)
