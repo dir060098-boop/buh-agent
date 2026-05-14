@@ -2,14 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from jose import JWTError, jwt
-from passlib.context import CryptContext
+from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
 from pydantic import BaseModel
 from database import get_db, settings
 import models
 
 router = APIRouter()
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
 class UserCreate(BaseModel):
@@ -44,7 +44,7 @@ def register(data: UserCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Email already registered")
     user = models.User(
         email=data.email,
-        hashed_password=pwd_context.hash(data.password[:72]),
+        hashed_password=generate_password_hash(data.password),
         full_name=data.full_name
     )
     db.add(user)
@@ -55,7 +55,7 @@ def register(data: UserCreate, db: Session = Depends(get_db)):
 @router.post("/login", response_model=Token)
 def login(form: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.email == form.username).first()
-    if not user or not pwd_context.verify(form.password, user.hashed_password):
+    if not user or not check_password_hash(user.hashed_password, form.password):
         raise HTTPException(status_code=401, detail="Incorrect email or password")
     token = create_token({"sub": user.email})
     return {"access_token": token, "token_type": "bearer"}

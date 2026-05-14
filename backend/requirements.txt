@@ -4,7 +4,7 @@ sqlalchemy==2.0.30
 psycopg2-binary==2.9.9
 python-dotenv==1.0.1
 python-jose[cryptography]==3.3.0
-passlib[bcrypt]==1.7.4
+werkzeug==3.0.3
 python-multipart==0.0.9
 anthropic==0.28.0
 pillow==10.3.0
