@@ -36,11 +36,21 @@ export const companies = {
 }
 
 export const scanner = {
-  scan: (companyId, file) => {
-    const form = new FormData()
-    form.append('file', file)
-    return api.post(`/api/scanner/${companyId}/scan`, form)
-  }
+  scan: (companyId, formData) =>
+    api.post(`/api/scanner/${companyId}/scan`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+  list: (companyId, postingStatus) =>
+    api.get(`/api/scanner/${companyId}/list`, { params: { posting_status: postingStatus } }),
+}
+
+export const posting = {
+  autoAll:     (companyId) => api.post(`/api/posting/auto-all?company_id=${companyId}`),
+  auto:        (docId)     => api.post(`/api/posting/auto/${docId}`),
+  journal:     (companyId, params) => api.get(`/api/posting/journal`, { params: { company_id: companyId, ...params } }),
+  dailyReport: (companyId, date)   => api.get(`/api/posting/daily-report`, { params: { company_id: companyId, report_date: date } }),
+  seedChart:   ()          => api.post(`/api/posting/seed-chart`),
+  chartOfAccounts: (level) => api.get(`/api/posting/chart-of-accounts`, { params: { level } }),
 }
 
 export const documents = {
