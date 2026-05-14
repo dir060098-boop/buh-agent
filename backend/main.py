@@ -32,6 +32,38 @@ app.include_router(posting.router,        prefix="/api/posting",        tags=["p
 async def startup():
     Base.metadata.create_all(bind=engine)
     print("Tables created")
+    _seed_chart_on_startup()
+
+def _seed_chart_on_startup():
+    """Загружает план счетов КР и правила разноски при первом запуске (если таблицы пустые)."""
+    try:
+        from database import SessionLocal
+        from models import ChartOfAccount, PostingRule
+        from seed_chart import CHART_OF_ACCOUNTS, POSTING_RULES
+
+        db = SessionLocal()
+        try:
+            existing = db.query(ChartOfAccount).count()
+            if existing > 0:
+                print(f"План счетов уже загружен ({existing} счетов), пропускаем")
+                return
+
+            loaded_accounts = 0
+            for item in CHART_OF_ACCOUNTS:
+                db.add(ChartOfAccount(**item))
+                loaded_accounts += 1
+
+            loaded_rules = 0
+            for item in POSTING_RULES:
+                db.add(PostingRule(**item))
+                loaded_rules += 1
+
+            db.commit()
+            print(f"✅ План счетов КР загружен: {loaded_accounts} счетов, {loaded_rules} правил разноски")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"⚠️  Ошибка загрузки плана счетов: {e}")
 
 @app.get("/")
 def root():
