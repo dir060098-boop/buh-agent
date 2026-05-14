@@ -1,0 +1,72 @@
+@import url('https://fonts.googleapis.com/css2?family=Onest:wght@300;400;500;600;700&display=swap');
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #0f1117;
+  --surface: #181c27;
+  --surface2: #1e2336;
+  --border: #2a3050;
+  --accent: #4f7cff;
+  --accent2: #00d4a8;
+  --warn: #ff8c42;
+  --danger: #ff4d6d;
+  --text: #e8eaf6;
+  --text2: #8892b0;
+  --text3: #4a5580;
+}
+
+body {
+  font-family: 'Onest', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+}
+
+.badge {
+  padding: 3px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.badge-warn { background: rgba(255,140,66,0.15); color: var(--warn); }
+.badge-danger { background: rgba(255,77,109,0.15); color: var(--danger); }
+.badge-ok { background: rgba(0,212,168,0.15); color: var(--accent2); }
+.badge-blue { background: rgba(79,124,255,0.15); color: var(--accent); }
+
+.btn {
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border: none;
+  font-family: 'Onest', sans-serif;
+  transition: opacity 0.2s;
+}
+
+.btn:hover { opacity: 0.85; }
+.btn-primary { background: var(--accent); color: white; }
+.btn-secondary { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+
+input, select, textarea {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  color: var(--text);
+  font-size: 14px;
+  font-family: 'Onest', sans-serif;
+  outline: none;
+  width: 100%;
+}
+
+input:focus, select:focus { border-color: var(--accent); }
