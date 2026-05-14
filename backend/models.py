@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, Text, Enum
+from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, ForeignKey, Text, Enum, Numeric, JSON, Date
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from database import Base
@@ -18,7 +18,7 @@ class Company(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     inn = Column(String)
-    tax_regime = Column(String)   # ОРН, упрощёнка, патент
+    tax_regime = Column(String)
     owner_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     owner = relationship("User", back_populates="companies")
@@ -27,16 +27,19 @@ class Company(Base):
     bank_accounts = relationship("BankAccount", back_populates="company")
     employees = relationship("Employee", back_populates="company")
     deadlines = relationship("Deadline", back_populates="company")
+    journal_entries = relationship("JournalEntry", back_populates="company")
 
 class DocType(str, enum.Enum):
-    invoice = "invoice"         # счёт
-    act = "act"                 # акт
-    upd = "upd"                 # УПД
-    esf = "esf"                 # ЭСФ
-    ttn = "ttn"                 # ТТН / накладная
-    contract = "contract"       # договор
-    receipt = "receipt"         # чек / ПКО / РКО
+    invoice = "invoice"
+    act = "act"
+    upd = "upd"
+    esf = "esf"
+    ttn = "ttn"
+    contract = "contract"
+    receipt = "receipt"
     bank_statement = "bank_statement"
+    payment_order = "payment_order"
+    payroll = "payroll"
     other = "other"
 
 class Document(Base):
@@ -50,12 +53,21 @@ class Document(Base):
     counterparty_inn = Column(String)
     amount = Column(Float)
     currency = Column(String, default="KGS")
+    vat_amount = Column(Float, default=0)
     file_path = Column(String)
-    ai_raw_text = Column(Text)       # что извлёк AI
-    ai_summary = Column(Text)        # краткое резюме AI
-    status = Column(String, default="pending")  # pending / processed / error
+    ai_raw_text = Column(Text)
+    ai_summary = Column(Text)
+    ai_raw_json = Column(JSON)
+    # Поля для AI-разноски
+    debit_account = Column(String)
+    credit_account = Column(String)
+    ai_confidence = Column(Integer)
+    posting_status = Column(String, default="pending")  # pending / posted / needs_review
+    operation_type = Column(String)
+    status = Column(String, default="pending")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     company = relationship("Company", back_populates="documents")
+    journal_entries = relationship("JournalEntry", back_populates="document")
 
 class ESF(Base):
     __tablename__ = "esf"
@@ -67,7 +79,7 @@ class ESF(Base):
     supplier_name = Column(String)
     amount = Column(Float)
     vat_amount = Column(Float, default=0)
-    status = Column(String)         # принят, аннулирован, ошибка
+    status = Column(String)
     linked_payment = Column(Boolean, default=False)
     linked_document_id = Column(Integer, ForeignKey("documents.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -89,12 +101,12 @@ class BankTransaction(Base):
     account_id = Column(Integer, ForeignKey("bank_accounts.id"))
     date = Column(DateTime)
     amount = Column(Float)
-    direction = Column(String)      # in / out
+    direction = Column(String)
     counterparty = Column(String)
-    purpose = Column(String)        # назначение платежа
+    purpose = Column(String)
     linked_document_id = Column(Integer, ForeignKey("documents.id"), nullable=True)
     linked_esf_id = Column(Integer, ForeignKey("esf.id"), nullable=True)
-    status = Column(String, default="unmatched")  # unmatched / matched
+    status = Column(String, default="unmatched")
     account = relationship("BankAccount", back_populates="transactions")
 
 class Employee(Base):
@@ -117,7 +129,67 @@ class Deadline(Base):
     company_id = Column(Integer, ForeignKey("companies.id"))
     title = Column(String)
     deadline_date = Column(DateTime)
-    tax_type = Column(String)       # НДС, соцфонд, подоходный, отчёт
+    tax_type = Column(String)
     is_done = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     company = relationship("Company", back_populates="deadlines")
+
+# ============================================================
+# ПЛАН СЧЕТОВ КР
+# ============================================================
+class ChartOfAccount(Base):
+    __tablename__ = "chart_of_accounts"
+    id = Column(Integer, primary_key=True)
+    code = Column(String(10), unique=True, nullable=False)
+    name = Column(String(255), nullable=False)
+    section = Column(String(50), nullable=False)
+    account_type = Column(String(20), nullable=False)  # active / passive / active_passive
+    level = Column(Integer, nullable=False)             # 1=раздел, 2=группа, 3=счёт
+    parent_code = Column(String(10), nullable=True)
+    is_active = Column(Boolean, default=True)
+    description = Column(Text)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+# ============================================================
+# ПРАВИЛА РАЗНОСКИ
+# ============================================================
+class PostingRule(Base):
+    __tablename__ = "posting_rules"
+    id = Column(Integer, primary_key=True)
+    rule_name = Column(String(255), nullable=False)
+    document_type = Column(String(100), nullable=False)
+    operation_keywords = Column(JSON)        # список ключевых слов
+    debit_account = Column(String(10), nullable=False)
+    credit_account = Column(String(10), nullable=False)
+    description = Column(Text)
+    priority = Column(Integer, default=50)
+    is_active = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+# ============================================================
+# ЖУРНАЛ ПРОВОДОК
+# ============================================================
+class JournalEntry(Base):
+    __tablename__ = "journal_entries"
+    id = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey("companies.id"))
+    document_id = Column(Integer, ForeignKey("documents.id"), nullable=True)
+    entry_date = Column(Date, nullable=False)
+    debit_account = Column(String(10), nullable=False)
+    credit_account = Column(String(10), nullable=False)
+    debit_account_name = Column(String(255))
+    credit_account_name = Column(String(255))
+    amount = Column(Numeric(18, 2), nullable=False)
+    currency = Column(String(3), default="KGS")
+    amount_kgs = Column(Numeric(18, 2))
+    exchange_rate = Column(Numeric(10, 4))
+    description = Column(Text)
+    posting_rule_id = Column(Integer, ForeignKey("posting_rules.id"), nullable=True)
+    ai_confidence = Column(Integer)
+    ai_reasoning = Column(Text)
+    status = Column(String(20), default="posted")  # posted / needs_review / rejected
+    reviewed_by = Column(String(255))
+    reviewed_at = Column(DateTime)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    company = relationship("Company", back_populates="journal_entries")
+    document = relationship("Document", back_populates="journal_entries")

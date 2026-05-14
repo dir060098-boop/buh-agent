@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base
 import models
 models  # ensure models loaded
-from routers import auth, companies, documents, esf, bank, salary, deadlines, communications, scanner
+from routers import auth, companies, documents, esf, bank, salary, deadlines, communications, scanner, posting
 
 
 
@@ -26,6 +26,7 @@ app.include_router(bank.router,           prefix="/api/bank",           tags=["b
 app.include_router(salary.router,         prefix="/api/salary",         tags=["salary"])
 app.include_router(deadlines.router,      prefix="/api/deadlines",      tags=["deadlines"])
 app.include_router(communications.router, prefix="/api/communications", tags=["communications"])
+app.include_router(posting.router,        prefix="/api/posting",        tags=["posting"])
 
 @app.on_event("startup")
 async def startup():
