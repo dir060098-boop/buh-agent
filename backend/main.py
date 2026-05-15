@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base
+from sqlalchemy import text
 import models
 models  # ensure models loaded
 from routers import auth, companies, documents, esf, bank, salary, deadlines, communications, scanner, posting
@@ -32,7 +33,36 @@ app.include_router(posting.router,        prefix="/api/posting",        tags=["p
 async def startup():
     Base.metadata.create_all(bind=engine)
     print("Tables created")
+    _run_migrations()
     _seed_chart_on_startup()
+
+def _run_migrations():
+    """Добавляет новые колонки в существующие таблицы (безопасно — игнорирует если уже есть)."""
+    migrations = [
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS debit_account VARCHAR(10)",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS credit_account VARCHAR(10)",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS ai_confidence INTEGER",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS posting_status VARCHAR(20) DEFAULT 'pending'",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS operation_type VARCHAR(100)",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS counterparty_inn VARCHAR(20)",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS doc_number VARCHAR(100)",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS doc_date TIMESTAMP",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS amount FLOAT",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS currency VARCHAR(3)",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS vat_amount FLOAT",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS ai_raw_json JSONB",
+    ]
+    try:
+        with engine.connect() as conn:
+            for sql in migrations:
+                try:
+                    conn.execute(text(sql))
+                    conn.commit()
+                except Exception:
+                    pass  # колонка уже есть — игнорируем
+        print("✅ Миграции применены")
+    except Exception as e:
+        print(f"⚠️ Ошибка миграций: {e}")
 
 def _seed_chart_on_startup():
     """Загружает план счетов КР и правила разноски при первом запуске (если таблицы пустые)."""
