@@ -54,7 +54,7 @@ export const posting = {
   chartOfAccounts:(level)           => api.get(`/api/posting/chart-of-accounts`, { params: { level } }),
   review:         (entryId, data)   => api.patch(`/api/posting/journal/${entryId}/review`, data),
   deleteEntry:    (entryId)         => api.delete(`/api/posting/journal/${entryId}`),
-  bulkDelete:     (ids)             => api.delete('/api/posting/journal/bulk-delete', { data: ids }),
+  bulkDelete:     (ids)             => api.post('/api/posting/journal/bulk-delete', ids),
 }
 
 export const documents = {

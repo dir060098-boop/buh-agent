@@ -439,16 +439,18 @@ export default function Journal() {
 
                 {entries.map(e => (
                   <div key={e.id}>
-                    <div style={{ display:'grid', gridTemplateColumns: selectMode ? '28px 36px 70px 100px 130px 1fr 90px 90px 110px 90px' : '36px 70px 100px 130px 1fr 90px 90px 110px 90px', gap:6, padding:'11px 14px', borderTop:'1px solid #1e2640', alignItems:'center', background: selected.has(e.id) ? '#1e0a0a' : e.status==='needs_review' ? '#1A1200' : expanded===e.id ? '#1e2640' : 'transparent' }}
+                    <div
+                      onClick={() => !selectMode && setExpanded(expanded===e.id ? null : e.id)}
+                      style={{ display:'grid', gridTemplateColumns: selectMode ? '28px 36px 70px 100px 130px 1fr 90px 90px 110px 90px' : '36px 70px 100px 130px 1fr 90px 90px 110px 90px', gap:6, padding:'11px 14px', borderTop:'1px solid #1e2640', alignItems:'center', cursor: selectMode ? 'default' : 'pointer', background: selected.has(e.id) ? '#1e0a0a' : e.status==='needs_review' ? '#1A1200' : expanded===e.id ? '#1e2640' : 'transparent' }}
                       onMouseEnter={ev => { if(!selectMode) ev.currentTarget.style.background = e.status==='needs_review' ? '#201600' : '#1a1f35' }}
                       onMouseLeave={ev => { if(!selectMode) ev.currentTarget.style.background = selected.has(e.id) ? '#1e0a0a' : e.status==='needs_review' ? '#1A1200' : expanded===e.id ? '#1e2640' : 'transparent' }}>
-                    {selectMode && (
-                      <div onClick={ev => ev.stopPropagation()} style={{ display:'flex', alignItems:'center', justifyContent:'center' }}>
-                        <input type='checkbox' checked={selected.has(e.id)}
-                          onChange={() => setSelected(prev => { const s = new Set(prev); s.has(e.id) ? s.delete(e.id) : s.add(e.id); return s })} />
-                      </div>
-                    )}
-                    <div onClick={() => !selectMode && setExpanded(expanded===e.id ? null : e.id)} style={{ display:'contents', cursor: selectMode ? 'default' : 'pointer' }}>
+
+                      {selectMode && (
+                        <div onClick={ev => ev.stopPropagation()} style={{ display:'flex', alignItems:'center', justifyContent:'center' }}>
+                          <input type='checkbox' checked={selected.has(e.id)}
+                            onChange={() => setSelected(prev => { const s = new Set(prev); s.has(e.id) ? s.delete(e.id) : s.add(e.id); return s })} />
+                        </div>
+                      )}
 
                       <div style={{ fontSize:11, color:'#4a5580', fontWeight:600 }}>{e.row_num}</div>
                       <div style={{ fontSize:11, color:'#8892b0' }}>{e.entry_date?.slice(2)}</div>
@@ -469,19 +471,20 @@ export default function Journal() {
                         <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:20, background:S_BG[e.status]||'#F3F4F622', color:S_COLOR[e.status]||'#6B7280' }}>
                           {S_LABEL[e.status]||e.status}
                         </span>
-                        {/* Кнопка проверки для needs_review */}
                         {e.status === 'needs_review' && (
-                          <button
-                            onClick={ev => { ev.stopPropagation(); setReviewEntry(e) }}
+                          <button onClick={ev => { ev.stopPropagation(); setReviewEntry(e) }}
                             style={{ fontSize:10, fontWeight:700, padding:'3px 8px', borderRadius:6, background:'#F59E0B', color:'#000', border:'none', cursor:'pointer', fontFamily:'inherit', whiteSpace:'nowrap' }}>
                             Проверить →
                           </button>
                         )}
+                        <button onClick={ev => { ev.stopPropagation(); setDeleteEntry(e) }}
+                          style={{ fontSize:10, fontWeight:700, padding:'3px 8px', borderRadius:6, background:'none', color:'#EF4444', border:'1px solid #EF444433', cursor:'pointer', fontFamily:'inherit', whiteSpace:'nowrap' }}>
+                          🗑
+                        </button>
                         <div style={{ fontSize:10, color:e.ai_confidence>=85?'#10B981':e.ai_confidence>=60?'#F59E0B':'#EF4444' }}>
                           {e.ai_confidence}% AI
                         </div>
                       </div>
-                    </div>
 
                     {/* Раскрытая детализация */}
                     {expanded === e.id && (

@@ -534,7 +534,7 @@ def delete_entry(
     return {"ok": True, "deleted_entry_id": entry_id}
 
 
-@router.delete("/journal/bulk-delete")
+@router.post("/journal/bulk-delete")
 def bulk_delete_entries(
     entry_ids: list[int],
     db: Session = Depends(get_db),
