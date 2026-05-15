@@ -2,11 +2,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base
 from sqlalchemy import text
-import models
-models  # ensure models loaded
+import os
+
 from routers import auth, companies, documents, esf, bank, salary, deadlines, communications, scanner, posting
-
-
 
 app = FastAPI(title="БухАгент API", version="1.0.0")
 
@@ -21,23 +19,43 @@ app.add_middleware(
 app.include_router(auth.router,           prefix="/api/auth",           tags=["auth"])
 app.include_router(companies.router,      prefix="/api/companies",      tags=["companies"])
 app.include_router(documents.router,      prefix="/api/documents",      tags=["documents"])
-app.include_router(scanner.router,        prefix="/api/scanner",        tags=["scanner"])
 app.include_router(esf.router,            prefix="/api/esf",            tags=["esf"])
 app.include_router(bank.router,           prefix="/api/bank",           tags=["bank"])
 app.include_router(salary.router,         prefix="/api/salary",         tags=["salary"])
 app.include_router(deadlines.router,      prefix="/api/deadlines",      tags=["deadlines"])
 app.include_router(communications.router, prefix="/api/communications", tags=["communications"])
+app.include_router(scanner.router,        prefix="/api/scanner",        tags=["scanner"])
 app.include_router(posting.router,        prefix="/api/posting",        tags=["posting"])
+
+@app.get("/")
+def root():
+    # Проверяем наличие API ключа при каждом healthcheck
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    key_ok = api_key.startswith("sk-ant-")
+    return {
+        "status": "ok",
+        "service": "БухАгент API",
+        "anthropic_key": "✅ настроен" if key_ok else "❌ НЕ НАСТРОЕН — сканер не работает",
+        "key_prefix": api_key[:12] + "..." if len(api_key) > 12 else "отсутствует"
+    }
 
 @app.on_event("startup")
 async def startup():
+    # Проверяем API ключ при старте
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not api_key or not api_key.startswith("sk-ant-"):
+        print("⚠️  ВНИМАНИЕ: ANTHROPIC_API_KEY не настроен или неверный!")
+        print(f"   Текущее значение: '{api_key[:20]}...' " if api_key else "   Переменная отсутствует")
+    else:
+        print(f"✅ ANTHROPIC_API_KEY настроен: {api_key[:16]}...")
+
     Base.metadata.create_all(bind=engine)
-    print("Tables created")
+    print("✅ Таблицы БД созданы/проверены")
     _run_migrations()
     _seed_chart_on_startup()
 
 def _run_migrations():
-    """Добавляет новые колонки в существующие таблицы (безопасно — игнорирует если уже есть)."""
+    """Добавляет новые колонки в существующие таблицы."""
     migrations = [
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS debit_account VARCHAR(10)",
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS credit_account VARCHAR(10)",
@@ -59,13 +77,13 @@ def _run_migrations():
                     conn.execute(text(sql))
                     conn.commit()
                 except Exception:
-                    pass  # колонка уже есть — игнорируем
+                    pass
         print("✅ Миграции применены")
     except Exception as e:
-        print(f"⚠️ Ошибка миграций: {e}")
+        print(f"⚠️  Ошибка миграций: {e}")
 
 def _seed_chart_on_startup():
-    """Загружает план счетов КР и правила разноски при первом запуске (если таблицы пустые)."""
+    """Загружает план счетов КР при первом запуске."""
     try:
         from database import SessionLocal
         from models import ChartOfAccount, PostingRule
@@ -75,26 +93,15 @@ def _seed_chart_on_startup():
         try:
             existing = db.query(ChartOfAccount).count()
             if existing > 0:
-                print(f"План счетов уже загружен ({existing} счетов), пропускаем")
+                print(f"✅ План счетов уже загружен ({existing} счетов)")
                 return
-
-            loaded_accounts = 0
             for item in CHART_OF_ACCOUNTS:
                 db.add(ChartOfAccount(**item))
-                loaded_accounts += 1
-
-            loaded_rules = 0
             for item in POSTING_RULES:
                 db.add(PostingRule(**item))
-                loaded_rules += 1
-
             db.commit()
-            print(f"✅ План счетов КР загружен: {loaded_accounts} счетов, {loaded_rules} правил разноски")
+            print(f"✅ План счетов КР загружен: {len(CHART_OF_ACCOUNTS)} счетов, {len(POSTING_RULES)} правил")
         finally:
             db.close()
     except Exception as e:
         print(f"⚠️  Ошибка загрузки плана счетов: {e}")
-
-@app.get("/")
-def root():
-    return {"status": "ok", "app": "БухАгент"}
