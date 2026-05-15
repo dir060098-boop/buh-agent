@@ -247,6 +247,32 @@ export default function Journal() {
   const [expanded, setExpanded] = useState(null)
   const [showFilters, setShowFilters] = useState(false)
   const [reviewEntry, setReviewEntry] = useState(null)
+  const [deleteEntry, setDeleteEntry] = useState(null)
+  const [deleting, setDeleting] = useState(false)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selected, setSelected] = useState(new Set())
+
+  async function handleDelete(entryId) {
+    setDeleting(true)
+    try {
+      await posting.deleteEntry(entryId)
+      setDeleteEntry(null)
+      await loadJournal()
+    } catch(e) { alert(e.response?.data?.detail || e.message) }
+    finally { setDeleting(false) }
+  }
+
+  async function handleBulkDelete() {
+    if (selected.size === 0) return
+    setDeleting(true)
+    try {
+      await posting.bulkDelete([...selected])
+      setSelected(new Set())
+      setSelectMode(false)
+      await loadJournal()
+    } catch(e) { alert(e.response?.data?.detail || e.message) }
+    finally { setDeleting(false) }
+  }
 
   const loadJournal = useCallback(async () => {
     setLoading(true)
@@ -304,10 +330,29 @@ export default function Journal() {
             style={{ background:'#181c27', color:'#8892b0', border:'1px solid #2a3050', padding:'8px 14px', borderRadius:8, fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
             📷 Сканер
           </button>
-          <button onClick={runAutoAll} disabled={postingAll}
-            style={{ background:postingAll?'#374151':'#4F46E5', color:'#fff', border:'none', padding:'8px 14px', borderRadius:8, fontSize:12, fontWeight:700, cursor:postingAll?'not-allowed':'pointer', fontFamily:'inherit' }}>
-            {postingAll ? '⏳ Разношу...' : '⚡ Разнести все'}
-          </button>
+          {selectMode ? (
+            <>
+              <button onClick={handleBulkDelete} disabled={deleting || selected.size === 0}
+                style={{ background: selected.size > 0 ? '#EF4444' : '#374151', color:'#fff', border:'none', padding:'8px 14px', borderRadius:8, fontSize:12, fontWeight:700, cursor: selected.size > 0 ? 'pointer' : 'not-allowed', fontFamily:'inherit' }}>
+                {deleting ? '...' : `🗑 Удалить (${selected.size})`}
+              </button>
+              <button onClick={() => { setSelectMode(false); setSelected(new Set()) }}
+                style={{ background:'none', color:'#8892b0', border:'1px solid #2a3050', padding:'8px 14px', borderRadius:8, fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+                Отмена
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={() => setSelectMode(true)}
+                style={{ background:'#181c27', color:'#8892b0', border:'1px solid #2a3050', padding:'8px 14px', borderRadius:8, fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+                ☑ Выбрать
+              </button>
+              <button onClick={runAutoAll} disabled={postingAll}
+                style={{ background:postingAll?'#374151':'#4F46E5', color:'#fff', border:'none', padding:'8px 14px', borderRadius:8, fontSize:12, fontWeight:700, cursor:postingAll?'not-allowed':'pointer', fontFamily:'inherit' }}>
+                {postingAll ? '⏳ Разношу...' : '⚡ Разнести все'}
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -386,17 +431,24 @@ export default function Journal() {
             ) : (
               <div style={{ background:'#181c27', borderRadius:12, border:'1px solid #2a3050', overflow:'hidden' }}>
                 {/* Шапка таблицы */}
-                <div style={{ display:'grid', gridTemplateColumns:'36px 70px 100px 130px 1fr 90px 90px 110px 90px', gap:6, padding:'10px 14px', background:'#0f1117', fontSize:10, fontWeight:700, color:'#4a5580', textTransform:'uppercase', letterSpacing:'0.08em' }}>
+                <div style={{ display:'grid', gridTemplateColumns: selectMode ? '28px 36px 70px 100px 130px 1fr 90px 90px 110px 90px' : '36px 70px 100px 130px 1fr 90px 90px 110px 90px', gap:6, padding:'10px 14px', background:'#0f1117', fontSize:10, fontWeight:700, color:'#4a5580', textTransform:'uppercase', letterSpacing:'0.08em' }}>
+                  {selectMode && <div><input type='checkbox' onChange={e => { if(e.target.checked) setSelected(new Set(entries.map(x=>x.id))); else setSelected(new Set()) }} /></div>}
                   <div>№</div><div>Дата</div><div>Документ</div><div>Контрагент</div>
                   <div>Содержание</div><div>Дт</div><div>Кт</div><div style={{textAlign:'right'}}>Сумма</div><div>Статус</div>
                 </div>
 
                 {entries.map(e => (
                   <div key={e.id}>
-                    <div onClick={() => setExpanded(expanded===e.id ? null : e.id)}
-                      style={{ display:'grid', gridTemplateColumns:'36px 70px 100px 130px 1fr 90px 90px 110px 90px', gap:6, padding:'11px 14px', borderTop:'1px solid #1e2640', cursor:'pointer', alignItems:'center', background: e.status==='needs_review' ? '#1A1200' : expanded===e.id ? '#1e2640' : 'transparent' }}
-                      onMouseEnter={ev => ev.currentTarget.style.background = e.status==='needs_review' ? '#201600' : '#1a1f35'}
-                      onMouseLeave={ev => ev.currentTarget.style.background = e.status==='needs_review' ? '#1A1200' : expanded===e.id ? '#1e2640' : 'transparent'}>
+                    <div style={{ display:'grid', gridTemplateColumns: selectMode ? '28px 36px 70px 100px 130px 1fr 90px 90px 110px 90px' : '36px 70px 100px 130px 1fr 90px 90px 110px 90px', gap:6, padding:'11px 14px', borderTop:'1px solid #1e2640', alignItems:'center', background: selected.has(e.id) ? '#1e0a0a' : e.status==='needs_review' ? '#1A1200' : expanded===e.id ? '#1e2640' : 'transparent' }}
+                      onMouseEnter={ev => { if(!selectMode) ev.currentTarget.style.background = e.status==='needs_review' ? '#201600' : '#1a1f35' }}
+                      onMouseLeave={ev => { if(!selectMode) ev.currentTarget.style.background = selected.has(e.id) ? '#1e0a0a' : e.status==='needs_review' ? '#1A1200' : expanded===e.id ? '#1e2640' : 'transparent' }}>
+                    {selectMode && (
+                      <div onClick={ev => ev.stopPropagation()} style={{ display:'flex', alignItems:'center', justifyContent:'center' }}>
+                        <input type='checkbox' checked={selected.has(e.id)}
+                          onChange={() => setSelected(prev => { const s = new Set(prev); s.has(e.id) ? s.delete(e.id) : s.add(e.id); return s })} />
+                      </div>
+                    )}
+                    <div onClick={() => !selectMode && setExpanded(expanded===e.id ? null : e.id)} style={{ display:'contents', cursor: selectMode ? 'default' : 'pointer' }}>
 
                       <div style={{ fontSize:11, color:'#4a5580', fontWeight:600 }}>{e.row_num}</div>
                       <div style={{ fontSize:11, color:'#8892b0' }}>{e.entry_date?.slice(2)}</div>
@@ -455,6 +507,10 @@ export default function Journal() {
                             ✏️ Открыть на проверку
                           </button>
                         )}
+                        <button onClick={() => setDeleteEntry(e)}
+                          style={{ marginTop:8, background:'none', color:'#EF4444', border:'1px solid #EF444433', padding:'7px 16px', borderRadius:8, fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'inherit' }}>
+                          🗑 Удалить проводку
+                        </button>
                       </div>
                     )}
                   </div>
@@ -553,6 +609,35 @@ export default function Journal() {
           </div>
         )}
       </div>
+
+      {/* Модальное окно удаления */}
+      {deleteEntry && (
+        <div style={{ position:'fixed', inset:0, background:'#000c', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:16 }}>
+          <div style={{ background:'#181c27', border:'1px solid #EF444466', borderRadius:16, padding:24, maxWidth:420, width:'100%' }}>
+            <div style={{ fontSize:28, marginBottom:12 }}>🗑</div>
+            <div style={{ fontWeight:800, fontSize:15, color:'#e8eaf6', marginBottom:8 }}>Удалить проводку?</div>
+            <div style={{ fontSize:13, color:'#8892b0', marginBottom:6 }}>
+              {deleteEntry.doc_number ? `№${deleteEntry.doc_number}` : 'Без номера'} · {deleteEntry.counterparty || '—'}
+            </div>
+            <div style={{ fontSize:13, color:'#8892b0', marginBottom:16 }}>
+              Дт <strong style={{color:'#818CF8'}}>{deleteEntry.debit_account}</strong> → Кт <strong style={{color:'#34D399'}}>{deleteEntry.credit_account}</strong> · {Number(deleteEntry.amount).toLocaleString('ru-RU')} {deleteEntry.currency}
+            </div>
+            <div style={{ background:'#1e0a0a', border:'1px solid #EF444433', borderRadius:8, padding:'10px 14px', marginBottom:16, fontSize:12, color:'#FCA5A5' }}>
+              ⚠️ Документ вернётся в статус «Ожидает разноски»
+            </div>
+            <div style={{ display:'flex', gap:10 }}>
+              <button onClick={() => handleDelete(deleteEntry.id)} disabled={deleting}
+                style={{ flex:1, background:'#EF4444', color:'#fff', border:'none', padding:12, borderRadius:10, fontSize:14, fontWeight:800, cursor:'pointer', fontFamily:'inherit' }}>
+                {deleting ? 'Удаляю...' : 'Да, удалить'}
+              </button>
+              <button onClick={() => setDeleteEntry(null)}
+                style={{ flex:1, background:'none', color:'#8892b0', border:'1px solid #2a3050', padding:12, borderRadius:10, fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'inherit' }}>
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Модальное окно проверки */}
       {reviewEntry && (

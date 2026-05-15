@@ -494,3 +494,85 @@ def review_entry(
         "reviewed_by": entry.reviewed_by,
         "reviewed_at": str(entry.reviewed_at)
     }
+
+
+@router.delete("/journal/{entry_id}")
+def delete_entry(
+    entry_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Удалить проводку из журнала (для исправления дублей)."""
+    entry = db.query(JournalEntry).filter(JournalEntry.id == entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Проводка не найдена")
+
+    company = db.query(Company).filter(
+        Company.id == entry.company_id,
+        Company.owner_id == current_user.id
+    ).first()
+    if not company:
+        raise HTTPException(status_code=403, detail="Нет доступа")
+
+    # Сбрасываем статус документа обратно в pending
+    if entry.document_id:
+        doc = db.query(Document).filter(Document.id == entry.document_id).first()
+        if doc:
+            # Проверяем не осталось ли других проводок для этого документа
+            other_entries = db.query(JournalEntry).filter(
+                JournalEntry.document_id == doc.id,
+                JournalEntry.id != entry_id
+            ).count()
+            if other_entries == 0:
+                doc.posting_status = "pending"
+                doc.debit_account = None
+                doc.credit_account = None
+                db.add(doc)
+
+    db.delete(entry)
+    db.commit()
+    return {"ok": True, "deleted_entry_id": entry_id}
+
+
+@router.delete("/journal/bulk-delete")
+def bulk_delete_entries(
+    entry_ids: list[int],
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Удалить несколько проводок сразу (для очистки дублей)."""
+    deleted = []
+    errors = []
+
+    for entry_id in entry_ids:
+        entry = db.query(JournalEntry).filter(JournalEntry.id == entry_id).first()
+        if not entry:
+            errors.append({"id": entry_id, "error": "не найдена"})
+            continue
+
+        company = db.query(Company).filter(
+            Company.id == entry.company_id,
+            Company.owner_id == current_user.id
+        ).first()
+        if not company:
+            errors.append({"id": entry_id, "error": "нет доступа"})
+            continue
+
+        if entry.document_id:
+            doc = db.query(Document).filter(Document.id == entry.document_id).first()
+            if doc:
+                other = db.query(JournalEntry).filter(
+                    JournalEntry.document_id == doc.id,
+                    JournalEntry.id != entry_id
+                ).count()
+                if other == 0:
+                    doc.posting_status = "pending"
+                    doc.debit_account = None
+                    doc.credit_account = None
+                    db.add(doc)
+
+        db.delete(entry)
+        deleted.append(entry_id)
+
+    db.commit()
+    return {"deleted": len(deleted), "errors": len(errors), "deleted_ids": deleted, "error_details": errors}
