@@ -285,16 +285,16 @@ export default function Scanner() {
           )}
 
           {/* Кнопки */}
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <button
               onClick={() => { setstate('idle'); setPreview(null); setFileName(''); setResult(null) }}
-              style={{ flex: 1, background: '#4F46E5', color: '#fff', border: 'none', padding: '13px', borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+              style={{ flex: 1, minWidth: 140, background: '#4F46E5', color: '#fff', border: 'none', padding: '13px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
               📷 Сканировать ещё
             </button>
             <button
-              onClick={() => navigate(`/company/${companyId}/documents`)}
-              style={{ flex: 1, background: '#fff', color: '#374151', border: '2px solid #E5E7EB', padding: '13px', borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
-              📋 К документам
+              onClick={() => navigate(`/company/${companyId}/journal`)}
+              style={{ flex: 1, minWidth: 140, background: '#181c27', color: '#e8eaf6', border: '1px solid #2a3050', padding: '13px', borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+              📒 В журнал проводок
             </button>
           </div>
         </div>
