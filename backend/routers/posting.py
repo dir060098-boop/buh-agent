@@ -2,6 +2,7 @@
 AI-агент автоматической разноски + журнал хозяйственных операций КР (МСФО).
 """
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from sqlalchemy import and_
 from database import get_db
@@ -334,3 +335,104 @@ def seed_chart_of_accounts(db: Session = Depends(get_db), current_user: User = D
             loaded_rules += 1
     db.commit()
     return {"success": True, "accounts_loaded": loaded_accounts, "rules_loaded": loaded_rules}
+
+
+# ── ФЛОУ "НА ПРОВЕРКЕ" ──────────────────────────────────
+
+class ReviewAction(BaseModel):
+    action: str  # confirm | reject | correct
+    debit_account: Optional[str] = None
+    credit_account: Optional[str] = None
+    description: Optional[str] = None
+    comment: Optional[str] = None  # причина отклонения
+
+@router.patch("/journal/{entry_id}/review")
+def review_entry(
+    entry_id: int,
+    data: ReviewAction,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Флоу проверки проводки бухгалтером:
+    - confirm  → статус posted, фиксируем кто подтвердил
+    - reject   → статус rejected, фиксируем причину
+    - correct  → меняем Дт/Кт, статус posted
+    """
+    entry = db.query(JournalEntry).filter(JournalEntry.id == entry_id).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="Проводка не найдена")
+
+    # Проверяем доступ через компанию
+    company = db.query(Company).filter(
+        Company.id == entry.company_id,
+        Company.owner_id == current_user.id
+    ).first()
+    if not company:
+        raise HTTPException(status_code=403, detail="Нет доступа")
+
+    now = datetime.utcnow()
+    reviewer = current_user.email
+
+    if data.action == "confirm":
+        entry.status = "posted"
+        entry.reviewed_by = reviewer
+        entry.reviewed_at = now
+
+    elif data.action == "reject":
+        entry.status = "rejected"
+        entry.reviewed_by = reviewer
+        entry.reviewed_at = now
+        if data.comment:
+            entry.ai_reasoning = f"[Отклонено: {data.comment}] " + (entry.ai_reasoning or "")
+        # Обновляем статус документа
+        if entry.document_id:
+            doc = db.query(Document).filter(Document.id == entry.document_id).first()
+            if doc:
+                doc.posting_status = "rejected"
+                db.add(doc)
+
+    elif data.action == "correct":
+        # Проверяем что счета существуют
+        if data.debit_account:
+            acc = db.query(ChartOfAccount).filter(ChartOfAccount.code == data.debit_account).first()
+            if not acc:
+                raise HTTPException(status_code=400, detail=f"Счёт {data.debit_account} не найден в плане счетов КР")
+            entry.debit_account = data.debit_account
+            entry.debit_account_name = acc.name
+        if data.credit_account:
+            acc = db.query(ChartOfAccount).filter(ChartOfAccount.code == data.credit_account).first()
+            if not acc:
+                raise HTTPException(status_code=400, detail=f"Счёт {data.credit_account} не найден в плане счетов КР")
+            entry.credit_account = data.credit_account
+            entry.credit_account_name = acc.name
+        if data.description:
+            entry.description = data.description
+        entry.status = "posted"
+        entry.reviewed_by = reviewer
+        entry.reviewed_at = now
+        # Обновляем документ
+        if entry.document_id:
+            doc = db.query(Document).filter(Document.id == entry.document_id).first()
+            if doc:
+                doc.debit_account = entry.debit_account
+                doc.credit_account = entry.credit_account
+                doc.posting_status = "posted"
+                db.add(doc)
+    else:
+        raise HTTPException(status_code=400, detail="action должен быть: confirm | reject | correct")
+
+    db.add(entry)
+    db.commit()
+    db.refresh(entry)
+
+    return {
+        "id": entry.id,
+        "status": entry.status,
+        "debit_account": entry.debit_account,
+        "debit_account_name": entry.debit_account_name,
+        "credit_account": entry.credit_account,
+        "credit_account_name": entry.credit_account_name,
+        "reviewed_by": entry.reviewed_by,
+        "reviewed_at": str(entry.reviewed_at)
+    }

@@ -46,12 +46,13 @@ export const scanner = {
 }
 
 export const posting = {
-  autoAll:     (companyId) => api.post(`/api/posting/auto-all?company_id=${companyId}`),
-  auto:        (docId)     => api.post(`/api/posting/auto/${docId}`),
-  journal:     (companyId, params) => api.get(`/api/posting/journal`, { params: { company_id: companyId, ...params } }),
-  dailyReport: (companyId, date)   => api.get(`/api/posting/daily-report`, { params: { company_id: companyId, report_date: date } }),
-  seedChart:   ()          => api.post(`/api/posting/seed-chart`),
-  chartOfAccounts: (level) => api.get(`/api/posting/chart-of-accounts`, { params: { level } }),
+  autoAll:        (companyId)       => api.post(`/api/posting/auto-all?company_id=${companyId}`),
+  auto:           (docId)           => api.post(`/api/posting/auto/${docId}`),
+  journal:        (companyId, params) => api.get(`/api/posting/journal`, { params: { company_id: companyId, ...params } }),
+  dailyReport:    (companyId, date) => api.get(`/api/posting/daily-report`, { params: { company_id: companyId, report_date: date } }),
+  seedChart:      ()                => api.post(`/api/posting/seed-chart`),
+  chartOfAccounts:(level)           => api.get(`/api/posting/chart-of-accounts`, { params: { level } }),
+  review:         (entryId, data)   => api.patch(`/api/posting/journal/${entryId}/review`, data),
 }
 
 export const documents = {
