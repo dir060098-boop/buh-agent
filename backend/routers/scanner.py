@@ -234,46 +234,82 @@ async def scan_document(
             pass
 
     # ── ПРОВЕРКА ДУБЛЕЙ ────────────────────────────────────────
-    # Уровень 1: по номеру документа + контрагент + компания
-    duplicate = None
-    doc_number = ai_data.get("doc_number")
+    doc_number  = ai_data.get("doc_number")
     counterparty = ai_data.get("counterparty")
+    amount      = ai_data.get("amount")
+    currency    = ai_data.get("currency", "KGS")
+    doc_date    = ai_data.get("doc_date")
+    doc_type    = ai_data.get("doc_type", "other")
 
-    if doc_number:
+    duplicate = None
+
+    # Уровень 1 — точное совпадение: номер + контрагент + компания
+    if doc_number and counterparty:
         duplicate = db.query(models.Document).filter(
             models.Document.company_id == company_id,
             models.Document.doc_number == doc_number,
             models.Document.counterparty == counterparty
         ).first()
 
-    # Уровень 2: по сумме + дате + контрагенту (если нет номера)
-    if not duplicate and ai_data.get("amount") and ai_data.get("doc_date") and counterparty:
+    # Уровень 2 — номер + сумма + тип (контрагент мог распознаться иначе)
+    if not duplicate and doc_number and amount:
         duplicate = db.query(models.Document).filter(
             models.Document.company_id == company_id,
-            models.Document.amount == ai_data.get("amount"),
+            models.Document.doc_number == doc_number,
+            models.Document.amount == amount,
+            models.Document.doc_type == doc_type
+        ).first()
+
+    # Уровень 3 — сумма + дата + контрагент + тип (документ без чёткого номера)
+    if not duplicate and amount and doc_date and counterparty:
+        duplicate = db.query(models.Document).filter(
+            models.Document.company_id == company_id,
+            models.Document.amount == amount,
+            models.Document.currency == currency,
             models.Document.counterparty == counterparty,
-            models.Document.doc_type == ai_data.get("doc_type", "other")
+            models.Document.doc_type == doc_type
+        ).first()
+
+    # Уровень 4 — сумма + дата + тип (последний шанс поймать дубль)
+    if not duplicate and amount and doc_date:
+        from sqlalchemy import func, cast
+        import sqlalchemy as sa
+        duplicate = db.query(models.Document).filter(
+            models.Document.company_id == company_id,
+            models.Document.amount == amount,
+            models.Document.currency == currency,
+            models.Document.doc_type == doc_type,
+            sa.cast(models.Document.doc_date, sa.Date) == doc_date
         ).first()
 
     if duplicate:
-        # Документ уже есть — возвращаем предупреждение без создания нового
+        already_posted = db.query(models.JournalEntry).filter(
+            models.JournalEntry.document_id == duplicate.id,
+            models.JournalEntry.status.in_(["posted", "needs_review"])
+        ).first()
+
         return {
             "document_id": duplicate.id,
             "duplicate": True,
-            "warning": f"Документ уже загружен (ID {duplicate.id}). №{duplicate.doc_number or '—'} от {str(duplicate.doc_date)[:10] if duplicate.doc_date else '—'}, {duplicate.counterparty or '—'}, {duplicate.amount} {duplicate.currency}",
+            "already_posted": already_posted is not None,
+            "warning": (
+                f"Документ уже {'разнесён в журнал' if already_posted else 'загружен'}. "
+                f"№{duplicate.doc_number or '—'} от {str(duplicate.doc_date)[:10] if duplicate.doc_date else '—'}, "
+                f"{duplicate.counterparty or '—'}, {duplicate.amount} {duplicate.currency}"
+            ),
             "file_saved": filepath,
             "source_type": "pdf" if media_type == "application/pdf" else "image",
             "recognition": {
-                "doc_type": ai_data.get("doc_type"),
+                "doc_type": doc_type,
                 "doc_number": doc_number,
-                "doc_date": ai_data.get("doc_date"),
+                "doc_date": doc_date,
                 "counterparty": counterparty,
-                "amount": ai_data.get("amount"),
-                "currency": ai_data.get("currency"),
+                "amount": amount,
+                "currency": currency,
                 "summary": ai_data.get("summary"),
                 "confidence": ai_data.get("confidence", 0)
             },
-            "posting": None,
+            "posting": {"entry_id": already_posted.id, "status": already_posted.status} if already_posted else None,
             "status": "duplicate"
         }
     # ── КОНЕЦ ПРОВЕРКИ ДУБЛЕЙ ────────────────────────────────

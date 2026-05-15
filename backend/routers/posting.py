@@ -39,7 +39,38 @@ def get_posting_rules_summary(db: Session) -> str:
     return "\n".join(lines)
 
 
+class DuplicatePostingError(Exception):
+    def __init__(self, entry: 'JournalEntry'):
+        self.entry = entry
+
 def post_document_with_ai(doc: Document, db: Session) -> JournalEntry:
+    # ── ЗАЩИТА ОТ ПОВТОРНОЙ РАЗНОСКИ ──────────────────────────
+    # Проверка 1: уже есть проводка для этого document_id
+    existing_by_doc = db.query(JournalEntry).filter(
+        JournalEntry.document_id == doc.id,
+        JournalEntry.status.in_(["posted", "needs_review"])
+    ).first()
+    if existing_by_doc:
+        raise DuplicatePostingError(existing_by_doc)
+
+    # Проверка 2: аналогичный документ уже разнесён
+    # (одинаковые: компания + сумма + валюта + дата + контрагент + тип)
+    if doc.amount and doc.doc_date and doc.counterparty:
+        existing_by_attrs = db.query(JournalEntry).join(
+            Document, JournalEntry.document_id == Document.id
+        ).filter(
+            JournalEntry.company_id == doc.company_id,
+            JournalEntry.status.in_(["posted", "needs_review"]),
+            Document.amount == doc.amount,
+            Document.currency == doc.currency,
+            Document.counterparty == doc.counterparty,
+            Document.doc_type == doc.doc_type,
+            Document.id != doc.id
+        ).first()
+        if existing_by_attrs:
+            raise DuplicatePostingError(existing_by_attrs)
+    # ── КОНЕЦ ЗАЩИТЫ ──────────────────────────────────────────
+
     chart_summary = get_chart_summary(db)
     rules_summary = get_posting_rules_summary(db)
 
@@ -144,7 +175,19 @@ def auto_post_document(document_id: int, db: Session = Depends(get_db), current_
     company = db.query(Company).filter(Company.id == doc.company_id, Company.owner_id == current_user.id).first()
     if not company:
         raise HTTPException(status_code=403, detail="Нет доступа")
-    entry = post_document_with_ai(doc, db)
+    try:
+        entry = post_document_with_ai(doc, db)
+    except DuplicatePostingError as e:
+        raise HTTPException(status_code=409, detail={
+            "error": "duplicate",
+            "message": f"Документ уже разнесён (проводка #{e.entry.id})",
+            "existing_entry_id": e.entry.id,
+            "existing_status": e.entry.status,
+            "debit": e.entry.debit_account,
+            "credit": e.entry.credit_account,
+            "amount": float(e.entry.amount),
+            "currency": e.entry.currency
+        })
     return {
         "success": True, "document_id": document_id, "entry_id": entry.id,
         "debit": f"{entry.debit_account} {entry.debit_account_name}",
@@ -165,7 +208,7 @@ def auto_post_all(company_id: int, db: Session = Depends(get_db), current_user: 
         Document.posting_status == "pending",
         Document.amount != None
     ).all()
-    results, errors = [], []
+    results, errors, skipped = [], [], []
     for doc in docs:
         try:
             entry = post_document_with_ai(doc, db)
@@ -175,9 +218,22 @@ def auto_post_all(company_id: int, db: Session = Depends(get_db), current_user: 
                 "amount": float(entry.amount), "currency": entry.currency,
                 "confidence": entry.ai_confidence, "status": entry.status
             })
+        except DuplicatePostingError as e:
+            skipped.append({
+                "document_id": doc.id,
+                "doc_number": doc.doc_number,
+                "reason": f"Уже разнесён (проводка #{e.entry.id}, статус: {e.entry.status})"
+            })
         except Exception as e:
             errors.append({"document_id": doc.id, "error": str(e)})
-    return {"processed": len(results), "errors": len(errors), "results": results, "error_details": errors}
+    return {
+        "processed": len(results),
+        "skipped_duplicates": len(skipped),
+        "errors": len(errors),
+        "results": results,
+        "skipped": skipped,
+        "error_details": errors
+    }
 
 
 @router.get("/journal")
