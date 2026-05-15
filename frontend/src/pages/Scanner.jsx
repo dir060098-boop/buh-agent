@@ -39,8 +39,12 @@ export default function Scanner() {
       form.append('file', file)
       form.append('auto_post', 'true')
       const res = await scanner.scan(companyId, form)
+      if (res.data.duplicate) {
+        setstate('duplicate')
+      } else {
+        setstate('done')
+      }
       setResult(res.data)
-      setstate('done')
     } catch (e) {
       setError(e.response?.data?.detail || 'Ошибка при сканировании')
       setstate('error')
@@ -192,6 +196,43 @@ export default function Scanner() {
             style={{ background: '#4F46E5', color: '#fff', border: 'none', padding: '10px 24px', borderRadius: 8, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
             Попробовать снова
           </button>
+        </div>
+      )}
+
+      {/* Дубль */}
+      {state === 'duplicate' && result && (
+        <div style={{ background: '#1A1200', border: '1px solid #F59E0B', borderRadius: 14, padding: 20 }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>⚠️</div>
+          <div style={{ fontWeight: 800, fontSize: 15, color: '#F59E0B', marginBottom: 8 }}>
+            Документ уже загружен
+          </div>
+          <div style={{ fontSize: 13, color: '#8892b0', marginBottom: 16, lineHeight: 1.6 }}>
+            {result.warning}
+          </div>
+          <div style={{ background: '#0f1117', borderRadius: 10, padding: '12px 16px', marginBottom: 16 }}>
+            <div style={{ fontSize: 12, color: '#4a5580', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Распознанные данные</div>
+            {[
+              ['Тип', result.recognition?.doc_type],
+              ['Номер', result.recognition?.doc_number],
+              ['Контрагент', result.recognition?.counterparty],
+              ['Сумма', result.recognition?.amount ?  : null],
+            ].filter(([,v]) => v).map(([label, value]) => (
+              <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #1e2640', fontSize: 12 }}>
+                <span style={{ color: '#4a5580' }}>{label}</span>
+                <span style={{ color: '#e8eaf6', fontWeight: 600 }}>{value}</span>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: 10 }}>
+            <button onClick={() => { setstate('idle'); setPreview(null); setFileName(''); setResult(null) }}
+              style={{ flex: 1, background: '#4F46E5', color: '#fff', border: 'none', padding: 13, borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+              📷 Сканировать другой
+            </button>
+            <button onClick={() => navigate()}
+              style={{ flex: 1, background: '#181c27', color: '#e8eaf6', border: '1px solid #2a3050', padding: 13, borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+              📒 В журнал
+            </button>
+          </div>
         </div>
       )}
 

@@ -241,6 +241,8 @@ def get_journal(
             "ai_reasoning": e.ai_reasoning,
             "status": e.status,
             "document_id": e.document_id,
+            "reviewed_by": e.reviewed_by,
+            "reviewed_at": str(e.reviewed_at) if e.reviewed_at else None,
             "created_at": str(e.created_at)
         })
     return result

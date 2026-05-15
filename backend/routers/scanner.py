@@ -233,6 +233,51 @@ async def scan_document(
         except Exception:
             pass
 
+    # ── ПРОВЕРКА ДУБЛЕЙ ────────────────────────────────────────
+    # Уровень 1: по номеру документа + контрагент + компания
+    duplicate = None
+    doc_number = ai_data.get("doc_number")
+    counterparty = ai_data.get("counterparty")
+
+    if doc_number:
+        duplicate = db.query(models.Document).filter(
+            models.Document.company_id == company_id,
+            models.Document.doc_number == doc_number,
+            models.Document.counterparty == counterparty
+        ).first()
+
+    # Уровень 2: по сумме + дате + контрагенту (если нет номера)
+    if not duplicate and ai_data.get("amount") and ai_data.get("doc_date") and counterparty:
+        duplicate = db.query(models.Document).filter(
+            models.Document.company_id == company_id,
+            models.Document.amount == ai_data.get("amount"),
+            models.Document.counterparty == counterparty,
+            models.Document.doc_type == ai_data.get("doc_type", "other")
+        ).first()
+
+    if duplicate:
+        # Документ уже есть — возвращаем предупреждение без создания нового
+        return {
+            "document_id": duplicate.id,
+            "duplicate": True,
+            "warning": f"Документ уже загружен (ID {duplicate.id}). №{duplicate.doc_number or '—'} от {str(duplicate.doc_date)[:10] if duplicate.doc_date else '—'}, {duplicate.counterparty or '—'}, {duplicate.amount} {duplicate.currency}",
+            "file_saved": filepath,
+            "source_type": "pdf" if media_type == "application/pdf" else "image",
+            "recognition": {
+                "doc_type": ai_data.get("doc_type"),
+                "doc_number": doc_number,
+                "doc_date": ai_data.get("doc_date"),
+                "counterparty": counterparty,
+                "amount": ai_data.get("amount"),
+                "currency": ai_data.get("currency"),
+                "summary": ai_data.get("summary"),
+                "confidence": ai_data.get("confidence", 0)
+            },
+            "posting": None,
+            "status": "duplicate"
+        }
+    # ── КОНЕЦ ПРОВЕРКИ ДУБЛЕЙ ────────────────────────────────
+
     # Сохраняем документ в БД
     doc = models.Document(
         company_id=company_id,
