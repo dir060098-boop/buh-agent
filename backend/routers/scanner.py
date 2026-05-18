@@ -229,7 +229,20 @@ async def recognize_document(
     ai_data = {}
     raw_text = ""
 
-    print(f"[SCANNER] file={file.filename} size={len(content)} bytes media_type={media_type} claude_type={claude_media_type} b64_len={len(b64)}")
+    print(f"[SCANNER] ====== NEW SCAN ======")
+    print(f"[SCANNER] file={file.filename}")
+    print(f"[SCANNER] content_type_from_browser={file.content_type}")
+    print(f"[SCANNER] detected_media_type={media_type}")
+    print(f"[SCANNER] size={len(content)} bytes")
+    print(f"[SCANNER] claude_media_type={claude_media_type}")
+    print(f"[SCANNER] b64_len={len(b64)}")
+    # Проверяем начало файла (magic bytes)
+    magic = content[:8].hex()
+    print(f"[SCANNER] file_magic_bytes={magic}")
+    if content[:4] == b'%PDF':
+        print(f"[SCANNER] file_is_valid_pdf=True")
+    else:
+        print(f"[SCANNER] file_is_valid_pdf=False - NOT a PDF!")
 
     try:
         response = client.messages.create(

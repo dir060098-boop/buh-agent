@@ -234,11 +234,25 @@ export default function Scanner() {
                   📄 Оригинал документа
                 </div>
                 {sourceType === 'pdf' ? (
-                  <iframe
-                    src={fileUrl}
-                    style={{width:'100%', height:600, border:'1px solid var(--border)', borderRadius:'var(--radius)', background:'var(--surface)'}}
-                    title="Предпросмотр документа"
-                  />
+                  <div>
+                    <object
+                      data={fileUrl}
+                      type="application/pdf"
+                      style={{width:'100%', height:580, border:'1px solid var(--border)', borderRadius:'var(--radius)'}}
+                    >
+                      <div style={{padding:20, textAlign:'center', color:'var(--text3)', fontSize:13}}>
+                        PDF не отображается в браузере.{' '}
+                        <a href={fileUrl} target="_blank" rel="noreferrer"
+                          style={{color:'var(--accent)', fontWeight:700}}>
+                          Открыть в новой вкладке →
+                        </a>
+                      </div>
+                    </object>
+                    <a href={fileUrl} target="_blank" rel="noreferrer"
+                      style={{display:'block', textAlign:'center', marginTop:8, fontSize:12, color:'var(--accent)', fontWeight:600}}>
+                      🔗 Открыть PDF в новой вкладке
+                    </a>
+                  </div>
                 ) : (
                   <img src={fileUrl || preview} alt="document"
                     style={{width:'100%', borderRadius:'var(--radius)', border:'1px solid var(--border)'}}/>
