@@ -1,15 +1,75 @@
-import { useState } from "react"
-import { auth } from "../api/client"
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { auth } from '../api/client'
+
 export default function Login() {
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
-  const [error, setError] = useState("")
-  const handleLogin = async () => {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const navigate = useNavigate()
+
+  async function handleSubmit(e) {
+    e.preventDefault()
+    setLoading(true); setError('')
     try {
       const res = await auth.login(email, password)
-      localStorage.setItem("token", res.data.access_token)
-      window.location.href = "/"
-    } catch { setError("Неверный логин или пароль") }
+      localStorage.setItem('token', res.data.access_token)
+      navigate('/')
+    } catch {
+      setError('Неверный email или пароль')
+    } finally { setLoading(false) }
   }
-  return (<div style={{display:"flex",alignItems:"center",justifyContent:"center",minHeight:"100vh",background:"#0f1117"}}><div style={{background:"#181c27",border:"1px solid #2a3050",borderRadius:16,padding:40,width:360}}><h2 style={{color:"#e8eaf6",textAlign:"center"}}>📊 БухАгент</h2><p style={{color:"#8892b0",textAlign:"center",marginBottom:32,fontSize:13}}>AI-система для бухгалтера</p><div style={{marginBottom:16}}><label style={{color:"#8892b0",fontSize:12,display:"block",marginBottom:6}}>Логин</label><input value={email} onChange={e=>setEmail(e.target.value)} style={{width:"100%",background:"#1e2336",border:"1px solid #2a3050",borderRadius:8,padding:"10px 14px",color:"#e8eaf6",fontSize:14,boxSizing:"border-box"}}/></div><div style={{marginBottom:16}}><label style={{color:"#8892b0",fontSize:12,display:"block",marginBottom:6}}>Пароль</label><input type="password" value={password} onChange={e=>setPassword(e.target.value)} style={{width:"100%",background:"#1e2336",border:"1px solid #2a3050",borderRadius:8,padding:"10px 14px",color:"#e8eaf6",fontSize:14,boxSizing:"border-box"}}/></div>{error&&<p style={{color:"#ff4d6d",fontSize:13}}>{error}</p>}<button onClick={handleLogin} style={{width:"100%",background:"#4f7cff",color:"white",border:"none",borderRadius:8,padding:12,fontSize:14,fontWeight:600,cursor:"pointer",marginTop:8}}>Войти →</button></div></div>)
+
+  return (
+    <div style={{minHeight:'100vh',background:'var(--bg)',display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+      <div style={{width:'100%',maxWidth:400}}>
+        {/* Логотип */}
+        <div style={{textAlign:'center',marginBottom:32}}>
+          <div style={{fontSize:28,fontWeight:800,color:'var(--text)',letterSpacing:'-0.5px'}}>
+            Бух<span style={{color:'var(--accent)'}}>Агент</span>
+          </div>
+          <div style={{fontSize:13,color:'var(--text3)',marginTop:6}}>
+            Автоматизация бухгалтерии · Кыргызстан
+          </div>
+        </div>
+
+        {/* Карточка */}
+        <div style={{background:'var(--surface)',borderRadius:'var(--radius-lg)',boxShadow:'var(--shadow-lg)',padding:32,border:'1px solid var(--border)'}}>
+          <h2 style={{fontSize:18,fontWeight:800,marginBottom:24,color:'var(--text)'}}>Вход в систему</h2>
+
+          <form onSubmit={handleSubmit}>
+            <div style={{marginBottom:16}}>
+              <label style={{display:'block',fontSize:12,fontWeight:700,color:'var(--text2)',marginBottom:6,textTransform:'uppercase',letterSpacing:'0.05em'}}>
+                Email
+              </label>
+              <input value={email} onChange={e=>setEmail(e.target.value)}
+                type="email" placeholder="dinara@buhagent.kg" required
+                style={{width:'100%',padding:'10px 14px'}}/>
+            </div>
+
+            <div style={{marginBottom:24}}>
+              <label style={{display:'block',fontSize:12,fontWeight:700,color:'var(--text2)',marginBottom:6,textTransform:'uppercase',letterSpacing:'0.05em'}}>
+                Пароль
+              </label>
+              <input value={password} onChange={e=>setPassword(e.target.value)}
+                type="password" placeholder="••••••••" required
+                style={{width:'100%',padding:'10px 14px'}}/>
+            </div>
+
+            {error && (
+              <div style={{background:'var(--error-light)',color:'var(--error)',border:'1px solid var(--error)',borderRadius:'var(--radius-sm)',padding:'10px 14px',fontSize:13,marginBottom:16}}>
+                {error}
+              </div>
+            )}
+
+            <button type="submit" disabled={loading}
+              style={{width:'100%',background:loading?'var(--text3)':'var(--accent)',color:'#fff',border:'none',padding:'12px',borderRadius:'var(--radius)',fontSize:14,fontWeight:700,transition:'background 0.15s',boxShadow:'var(--shadow)'}}>
+              {loading ? 'Вхожу...' : 'Войти'}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  )
 }

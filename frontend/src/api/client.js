@@ -37,10 +37,12 @@ export const companies = {
 }
 
 export const scanner = {
-  scan: (companyId, formData) =>
-    api.post(`/api/scanner/${companyId}/scan`, formData, {
+  recognize: (companyId, formData) =>
+    api.post(`/api/scanner/${companyId}/recognize`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' }
     }),
+  confirm: (companyId, data) =>
+    api.post(`/api/scanner/${companyId}/confirm`, data),
   list: (companyId, postingStatus) =>
     api.get(`/api/scanner/${companyId}/list`, { params: { posting_status: postingStatus } }),
 }
