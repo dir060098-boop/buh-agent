@@ -215,7 +215,7 @@ export default function Scanner() {
               ['Тип', result.recognition?.doc_type],
               ['Номер', result.recognition?.doc_number],
               ['Контрагент', result.recognition?.counterparty],
-              ['Сумма', result.recognition?.amount ?  : null],
+              ['Сумма', result.recognition?.amount ? `${result.recognition.amount} ${result.recognition.currency || ''}` : null],
             ].filter(([,v]) => v).map(([label, value]) => (
               <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 0', borderBottom: '1px solid #1e2640', fontSize: 12 }}>
                 <span style={{ color: '#4a5580' }}>{label}</span>
