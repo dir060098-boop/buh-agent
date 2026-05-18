@@ -229,6 +229,8 @@ async def recognize_document(
     ai_data = {}
     raw_text = ""
 
+    print(f"[SCANNER] file={file.filename} size={len(content)} bytes media_type={media_type} claude_type={claude_media_type} b64_len={len(b64)}")
+
     try:
         response = client.messages.create(
             model="claude-sonnet-4-20250514",
@@ -236,6 +238,7 @@ async def recognize_document(
             messages=[message]
         )
         raw_text = response.content[0].text.strip()
+        print(f"[SCANNER] Claude raw response: {raw_text[:500]}")
         if "```" in raw_text:
             parts = raw_text.split("```")
             for part in parts:
@@ -311,6 +314,22 @@ async def recognize_document(
         },
         "ai_raw_json": ai_data
     }
+
+
+@router.get("/file")
+def get_file(path: str):
+    """Отдаёт загруженный файл для предпросмотра в браузере."""
+    from fastapi.responses import FileResponse
+    import mimetypes
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Файл не найден")
+    # Безопасность: только файлы из папки uploads
+    abs_path = os.path.abspath(path)
+    abs_uploads = os.path.abspath(UPLOAD_DIR)
+    if not abs_path.startswith(abs_uploads):
+        raise HTTPException(status_code=403, detail="Доступ запрещён")
+    mime = mimetypes.guess_type(path)[0] or "application/octet-stream"
+    return FileResponse(path, media_type=mime)
 
 
 @router.post("/{company_id}/confirm")

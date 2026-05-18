@@ -45,6 +45,10 @@ export const scanner = {
     api.post(`/api/scanner/${companyId}/confirm`, data),
   list: (companyId, postingStatus) =>
     api.get(`/api/scanner/${companyId}/list`, { params: { posting_status: postingStatus } }),
+  fileUrl: (filePath) => {
+    const base = import.meta.env.VITE_API_URL || ''
+    return `${base}/api/scanner/file?path=${encodeURIComponent(filePath)}`
+  },
 }
 
 export const posting = {

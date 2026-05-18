@@ -38,6 +38,8 @@ export default function Scanner() {
   const [fileName, setFileName] = useState('')
   const [error, setError] = useState('')
 
+  const [fileUrl, setFileUrl] = useState(null)
+  const [sourceType, setSourceType] = useState(null)
   // Данные от AI (для предпросмотра)
   const [recognized, setRecognized] = useState(null)
   const [filePath, setFilePath] = useState(null)
@@ -75,6 +77,8 @@ export default function Scanner() {
       const res = await scanner.recognize(companyId, fd)
       const data = res.data
       setFilePath(data.file_path)
+      setFileUrl(scanner.fileUrl(data.file_path))
+      setSourceType(data.source_type)
       setAiRawJson(data.ai_raw_json)
       setDuplicateWarning(data.duplicate_warning)
       const r = data.recognition
@@ -136,6 +140,8 @@ export default function Scanner() {
     setRecognized(null)
     setFilePath(null)
     setAiRawJson(null)
+    setFileUrl(null)
+    setSourceType(null)
     setDuplicateWarning(null)
     setForm({})
     setSavedResult(null)
@@ -220,12 +226,27 @@ export default function Scanner() {
 
         {/* ── PREVIEW: Предпросмотр и редактирование ── */}
         {(state === 'preview' || state === 'saving') && recognized && (
-          <div>
-            {/* Превью изображения */}
-            {preview && (
-              <img src={preview} alt="document"
-                style={{width:'100%', maxHeight:200, objectFit:'contain', borderRadius:12, marginBottom:16, background:'#181c27'}}/>
+          <div style={{display:'grid', gridTemplateColumns: fileUrl ? '1fr 1fr' : '1fr', gap:16, alignItems:'start'}}>
+            {/* ЛЕВАЯ КОЛОНКА — оригинал документа */}
+            {fileUrl && (
+              <div style={{position:'sticky', top:20}}>
+                <div style={{fontSize:11, fontWeight:700, color:'var(--text3)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8}}>
+                  📄 Оригинал документа
+                </div>
+                {sourceType === 'pdf' ? (
+                  <iframe
+                    src={fileUrl}
+                    style={{width:'100%', height:600, border:'1px solid var(--border)', borderRadius:'var(--radius)', background:'var(--surface)'}}
+                    title="Предпросмотр документа"
+                  />
+                ) : (
+                  <img src={fileUrl || preview} alt="document"
+                    style={{width:'100%', borderRadius:'var(--radius)', border:'1px solid var(--border)'}}/>
+                )}
+              </div>
             )}
+            {/* ПРАВАЯ КОЛОНКА — форма */}
+            <div>
 
             {/* Предупреждение о дубле */}
             {duplicateWarning && (
@@ -384,6 +405,7 @@ export default function Scanner() {
                 ✕ Отмена
               </button>
             </div>
+            </div>{/* конец правой колонки */}
           </div>
         )}
 
