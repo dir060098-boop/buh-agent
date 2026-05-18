@@ -1,0 +1,13 @@
+:{$PORT} {
+    root * /app/dist
+    encode gzip
+
+    header {
+        Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://buh-agent-production.up.railway.app https://api.anthropic.com; img-src 'self' data: blob:; object-src 'none'"
+        X-Content-Type-Options "nosniff"
+        -Server
+    }
+
+    try_files {path} /index.html
+    file_server
+}
