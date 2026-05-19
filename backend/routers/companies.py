@@ -173,3 +173,140 @@ def delete_company(company_id: int, db: Session = Depends(get_db), user=Depends(
     db.delete(c)
     db.commit()
     return {"ok": True}
+
+
+@router.get("/dashboard/summary")
+def dashboard_summary(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """
+    Сводка для интеллектуального дашборда:
+    - По каждой компании: счётчики, статусы, ближайшие дедлайны
+    - Лента событий: расхождения, ожидающие документы, дедлайны
+    """
+    from datetime import date, timedelta
+
+    companies = db.query(models.Company).filter(
+        models.Company.owner_id == user.id
+    ).all()
+
+    feed = []       # лента событий
+    companies_out = []
+
+    today = date.today()
+    soon = today + timedelta(days=7)
+
+    for c in companies:
+        # Счётчики документов
+        doc_count = db.query(models.Document).filter(
+            models.Document.company_id == c.id
+        ).count()
+        pending_docs = db.query(models.Document).filter(
+            models.Document.company_id == c.id,
+            models.Document.posting_status == "pending",
+            models.Document.amount != None
+        ).count()
+        needs_review = db.query(models.JournalEntry).filter(
+            models.JournalEntry.company_id == c.id,
+            models.JournalEntry.status == "needs_review"
+        ).count()
+        journal_count = db.query(models.JournalEntry).filter(
+            models.JournalEntry.company_id == c.id
+        ).count()
+
+        # Дедлайны
+        overdue = db.query(models.Deadline).filter(
+            models.Deadline.company_id == c.id,
+            models.Deadline.is_done == False,
+            models.Deadline.due_date < today
+        ).all() if hasattr(models, 'Deadline') else []
+
+        upcoming = db.query(models.Deadline).filter(
+            models.Deadline.company_id == c.id,
+            models.Deadline.is_done == False,
+            models.Deadline.due_date >= today,
+            models.Deadline.due_date <= soon
+        ).all() if hasattr(models, 'Deadline') else []
+
+        # Формируем события для ленты
+        if pending_docs > 0:
+            feed.append({
+                "type": "pending_docs",
+                "priority": "warn",
+                "company_id": c.id,
+                "company_name": c.name,
+                "message": f"{pending_docs} {'документ ожидает' if pending_docs == 1 else 'документов ожидают'} разноски",
+                "action": "post_all",
+                "action_label": "Разнести →"
+            })
+
+        if needs_review > 0:
+            feed.append({
+                "type": "needs_review",
+                "priority": "warn",
+                "company_id": c.id,
+                "company_name": c.name,
+                "message": f"{needs_review} {'проводка требует' if needs_review == 1 else 'проводок требуют'} проверки",
+                "action": "journal",
+                "action_label": "Проверить →"
+            })
+
+        for dl in overdue:
+            feed.append({
+                "type": "overdue_deadline",
+                "priority": "error",
+                "company_id": c.id,
+                "company_name": c.name,
+                "message": f"Просрочен: {dl.title}",
+                "action": "deadlines",
+                "action_label": "Перейти →"
+            })
+
+        for dl in upcoming:
+            days_left = (dl.due_date - today).days
+            feed.append({
+                "type": "upcoming_deadline",
+                "priority": "info",
+                "company_id": c.id,
+                "company_name": c.name,
+                "message": f"{dl.title} — через {days_left} {'день' if days_left == 1 else 'дней'}",
+                "action": "deadlines",
+                "action_label": "Перейти →"
+            })
+
+        # Статус компании
+        if len(overdue) > 0:
+            status = "error"
+            status_text = "Просроченные дедлайны"
+        elif pending_docs > 0 or needs_review > 0:
+            status = "warn"
+            status_text = "Требует внимания"
+        else:
+            status = "ok"
+            status_text = "Всё в порядке"
+
+        companies_out.append({
+            "id": c.id,
+            "name": c.name,
+            "inn": c.inn,
+            "tax_regime": c.tax_regime,
+            "doc_count": doc_count,
+            "pending_docs": pending_docs,
+            "needs_review": needs_review,
+            "journal_count": journal_count,
+            "overdue_deadlines": len(overdue),
+            "upcoming_deadlines": len(upcoming),
+            "status": status,
+            "status_text": status_text,
+            "can_delete": doc_count == 0 and journal_count == 0,
+        })
+
+    # Сортируем ленту: сначала error, потом warn, потом info
+    priority_order = {"error": 0, "warn": 1, "info": 2}
+    feed.sort(key=lambda x: priority_order.get(x["priority"], 3))
+
+    return {
+        "companies": companies_out,
+        "feed": feed,
+        "total_pending": sum(c["pending_docs"] for c in companies_out),
+        "total_review": sum(c["needs_review"] for c in companies_out),
+        "total_overdue": sum(c["overdue_deadlines"] for c in companies_out),
+    }

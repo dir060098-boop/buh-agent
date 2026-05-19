@@ -29,11 +29,12 @@ export const auth = {
 }
 
 export const companies = {
-  list:   ()         => api.get('/api/companies/'),
-  create: (data)     => api.post('/api/companies/', data),
-  get:    (id)       => api.get(`/api/companies/${id}`),
-  update: (id, data) => api.patch(`/api/companies/${id}`, data),
-  delete: (id)       => api.delete(`/api/companies/${id}`),
+  list:    ()         => api.get('/api/companies/'),
+  create:  (data)     => api.post('/api/companies/', data),
+  get:     (id)       => api.get(`/api/companies/${id}`),
+  update:  (id, data) => api.patch(`/api/companies/${id}`, data),
+  delete:  (id)       => api.delete(`/api/companies/${id}`),
+  summary: ()         => api.get('/api/companies/dashboard/summary'),
 }
 
 export const scanner = {
