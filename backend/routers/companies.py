@@ -84,97 +84,6 @@ def create_company(data: CompanyCreate, db: Session = Depends(get_db), user=Depe
     db.refresh(company)
     return company
 
-@router.get("/{company_id}")
-def get_company(company_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    c = db.query(models.Company).filter(
-        models.Company.id == company_id,
-        models.Company.owner_id == user.id
-    ).first()
-    if not c:
-        raise HTTPException(status_code=404, detail="Компания не найдена")
-    return c
-
-@router.patch("/{company_id}")
-def update_company(
-    company_id: int,
-    data: CompanyUpdate,
-    db: Session = Depends(get_db),
-    user=Depends(get_current_user)
-):
-    c = db.query(models.Company).filter(
-        models.Company.id == company_id,
-        models.Company.owner_id == user.id
-    ).first()
-    if not c:
-        raise HTTPException(status_code=404, detail="Компания не найдена")
-
-    # Обновляем название
-    if data.name is not None:
-        name = data.name.strip()
-        if not name:
-            raise HTTPException(status_code=400, detail="Название не может быть пустым")
-        # Проверяем уникальность нового названия
-        exists = db.query(models.Company).filter(
-            models.Company.owner_id == user.id,
-            models.Company.name == name,
-            models.Company.id != company_id
-        ).first()
-        if exists:
-            raise HTTPException(status_code=400, detail=f"Компания с названием «{name}» уже существует")
-        c.name = name
-
-    # Обновляем ИНН — только с подтверждением
-    if data.inn is not None:
-        inn = data.inn.strip()
-        if inn != (c.inn or ""):
-            if not data.inn_confirmed:
-                raise HTTPException(
-                    status_code=400,
-                    detail="INN_CONFIRM_REQUIRED"  # фронтенд поймает и покажет диалог
-                )
-            # Проверяем уникальность нового ИНН
-            if inn:
-                exists = db.query(models.Company).filter(
-                    models.Company.owner_id == user.id,
-                    models.Company.inn == inn,
-                    models.Company.id != company_id
-                ).first()
-                if exists:
-                    raise HTTPException(status_code=400, detail=f"Компания с ИНН {inn} уже существует: «{exists.name}»")
-            c.inn = inn
-
-    # Обновляем налоговый режим
-    if data.tax_regime is not None:
-        c.tax_regime = data.tax_regime
-
-    db.commit()
-    db.refresh(c)
-    return c
-
-@router.delete("/{company_id}")
-def delete_company(company_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    c = db.query(models.Company).filter(
-        models.Company.id == company_id,
-        models.Company.owner_id == user.id
-    ).first()
-    if not c:
-        raise HTTPException(status_code=404, detail="Компания не найдена")
-
-    # Проверяем есть ли данные
-    doc_count = db.query(models.Document).filter(models.Document.company_id == company_id).count()
-    journal_count = db.query(models.JournalEntry).filter(models.JournalEntry.company_id == company_id).count()
-
-    if doc_count > 0 or journal_count > 0:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Нельзя удалить компанию: есть {doc_count} документов и {journal_count} проводок. Сначала удалите данные."
-        )
-
-    db.delete(c)
-    db.commit()
-    return {"ok": True}
-
-
 @router.get("/dashboard/summary")
 def dashboard_summary(db: Session = Depends(get_db), user=Depends(get_current_user)):
     """
@@ -310,3 +219,94 @@ def dashboard_summary(db: Session = Depends(get_db), user=Depends(get_current_us
         "total_review": sum(c["needs_review"] for c in companies_out),
         "total_overdue": sum(c["overdue_deadlines"] for c in companies_out),
     }
+
+
+@router.get("/{company_id}")
+def get_company(company_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    c = db.query(models.Company).filter(
+        models.Company.id == company_id,
+        models.Company.owner_id == user.id
+    ).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Компания не найдена")
+    return c
+
+@router.patch("/{company_id}")
+def update_company(
+    company_id: int,
+    data: CompanyUpdate,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user)
+):
+    c = db.query(models.Company).filter(
+        models.Company.id == company_id,
+        models.Company.owner_id == user.id
+    ).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Компания не найдена")
+
+    # Обновляем название
+    if data.name is not None:
+        name = data.name.strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="Название не может быть пустым")
+        # Проверяем уникальность нового названия
+        exists = db.query(models.Company).filter(
+            models.Company.owner_id == user.id,
+            models.Company.name == name,
+            models.Company.id != company_id
+        ).first()
+        if exists:
+            raise HTTPException(status_code=400, detail=f"Компания с названием «{name}» уже существует")
+        c.name = name
+
+    # Обновляем ИНН — только с подтверждением
+    if data.inn is not None:
+        inn = data.inn.strip()
+        if inn != (c.inn or ""):
+            if not data.inn_confirmed:
+                raise HTTPException(
+                    status_code=400,
+                    detail="INN_CONFIRM_REQUIRED"  # фронтенд поймает и покажет диалог
+                )
+            # Проверяем уникальность нового ИНН
+            if inn:
+                exists = db.query(models.Company).filter(
+                    models.Company.owner_id == user.id,
+                    models.Company.inn == inn,
+                    models.Company.id != company_id
+                ).first()
+                if exists:
+                    raise HTTPException(status_code=400, detail=f"Компания с ИНН {inn} уже существует: «{exists.name}»")
+            c.inn = inn
+
+    # Обновляем налоговый режим
+    if data.tax_regime is not None:
+        c.tax_regime = data.tax_regime
+
+    db.commit()
+    db.refresh(c)
+    return c
+
+@router.delete("/{company_id}")
+def delete_company(company_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    c = db.query(models.Company).filter(
+        models.Company.id == company_id,
+        models.Company.owner_id == user.id
+    ).first()
+    if not c:
+        raise HTTPException(status_code=404, detail="Компания не найдена")
+
+    # Проверяем есть ли данные
+    doc_count = db.query(models.Document).filter(models.Document.company_id == company_id).count()
+    journal_count = db.query(models.JournalEntry).filter(models.JournalEntry.company_id == company_id).count()
+
+    if doc_count > 0 or journal_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Нельзя удалить компанию: есть {doc_count} документов и {journal_count} проводок. Сначала удалите данные."
+        )
+
+    db.delete(c)
+    db.commit()
+    return {"ok": True}
