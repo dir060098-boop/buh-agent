@@ -84,9 +84,29 @@ def convert_heic_to_jpeg(content: bytes) -> bytes:
 
 
 def prepare_for_claude(content: bytes, media_type: str):
+    # HEIC -> JPEG
     if media_type in ("image/heic","image/heif"):
         content = convert_heic_to_jpeg(content)
         media_type = "image/jpeg"
+
+    # PDF -> JPEG (конвертируем первую страницу)
+    # Это решает проблему галлюцинаций когда Claude не может прочитать PDF-обёртку
+    if media_type == "application/pdf":
+        try:
+            import fitz  # PyMuPDF
+            doc = fitz.open(stream=content, filetype="pdf")
+            page = doc[0]
+            # Высокое качество: 3x zoom = ~216 DPI
+            mat = fitz.Matrix(3, 3)
+            pix = page.get_pixmap(matrix=mat)
+            content = pix.tobytes("jpeg", jpg_quality=95)
+            media_type = "image/jpeg"
+            doc.close()
+            print(f"[SCANNER] PDF->JPEG: {pix.width}x{pix.height}px, {len(content)} bytes")
+        except Exception as e:
+            print(f"[SCANNER] PDF->JPEG failed: {e}, sending as PDF")
+            # Если конвертация не удалась — отправляем как PDF
+
     if media_type not in ("image/jpeg","image/png","image/gif","image/webp","application/pdf"):
         media_type = "image/jpeg"
     b64 = base64.standard_b64encode(content).decode("utf-8")
