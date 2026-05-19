@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
+// Build timestamp: 20260519131841
 export default defineConfig({
   plugins: [react()],
   build: {
