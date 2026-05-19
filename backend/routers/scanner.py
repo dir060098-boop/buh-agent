@@ -59,6 +59,12 @@ SCANNER_PROMPT = """Ты — опытный бухгалтер в Кыргызс
   "confidence": число от 0 до 100
 }
 
+ПРАВИЛА ДЛЯ СУММ:
+- Апостроф как разделитель тысяч: 12'695 = 12695, 1'230'000 = 1230000
+- Если в документе несколько сумм — бери ИТОГОВУЮ сумму к оплате
+- Квитанция с двумя блоками сумм — складывай все суммы: 12695 + 50 = 12745
+- Никогда не объединяй цифры из разных строк
+
 Типы документов:
 - invoice: счёт на оплату, счёт-фактура
 - act: акт выполненных работ/услуг
@@ -97,7 +103,7 @@ def prepare_for_claude(content: bytes, media_type: str):
             doc = fitz.open(stream=content, filetype="pdf")
             page = doc[0]
             # Высокое качество: 3x zoom = ~216 DPI
-            mat = fitz.Matrix(3, 3)
+            mat = fitz.Matrix(4, 4)
             pix = page.get_pixmap(matrix=mat)
             content = pix.tobytes("jpeg", jpg_quality=95)
             media_type = "image/jpeg"
