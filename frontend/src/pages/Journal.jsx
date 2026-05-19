@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { posting } from '../api/client'
+import { posting, documents as docsApi } from '../api/client'
 
 const S_LABEL = { posted: 'Проведено', needs_review: 'На проверке', rejected: 'Отклонено' }
 const S_COLOR = { posted: 'var(--success)', needs_review: 'var(--warn)', rejected: 'var(--error)' }
@@ -191,6 +191,15 @@ export default function Journal() {
   const [expanded, setExpanded] = useState(null)
   const [showFilters, setShowFilters] = useState(false)
   const [reviewEntry, setReviewEntry] = useState(null)
+  const [docViewEntry, setDocViewEntry] = useState(null)
+  const [copyMsg, setCopyMsg] = useState(null)
+
+  function copyToClipboard(text, label) {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopyMsg(label)
+      setTimeout(() => setCopyMsg(null), 2000)
+    })
+  }
   const [deleteEntry, setDeleteEntry] = useState(null)
   const [deleting, setDeleting] = useState(false)
   const [selectMode, setSelectMode] = useState(false)
@@ -441,18 +450,73 @@ export default function Journal() {
                     </div>
 
                     {expanded===e.id&&(
-                      <div style={{padding:'12px 14px 14px', background:'var(--surface2)', borderBottom:'1px solid var(--border)'}}>
-                        <div style={{display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12, marginBottom:10}}>
-                          <div><div style={LBL}>Дт счёт</div><div style={{fontSize:13, color:'var(--accent)', fontWeight:700}}>{e.debit_account} — {e.debit_account_name}</div></div>
-                          <div><div style={LBL}>Кт счёт</div><div style={{fontSize:13, color:'var(--success)', fontWeight:700}}>{e.credit_account} — {e.credit_account_name}</div></div>
-                          {e.counterparty_inn&&<div><div style={LBL}>ИНН</div><div style={{fontSize:13, color:'var(--text2)'}}>{e.counterparty_inn}</div></div>}
+                      <div style={{background:'var(--surface2)', borderBottom:'1px solid var(--border)'}}>
+
+                        {/* Реквизиты проводки */}
+                        <div style={{padding:'12px 14px 10px', display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12}}>
+                          <div>
+                            <div style={LBL}>Дт счёт</div>
+                            <div style={{fontSize:13, color:'var(--accent)', fontWeight:700}}>{e.debit_account} — {e.debit_account_name}</div>
+                          </div>
+                          <div>
+                            <div style={LBL}>Кт счёт</div>
+                            <div style={{fontSize:13, color:'var(--success)', fontWeight:700}}>{e.credit_account} — {e.credit_account_name}</div>
+                          </div>
+                          <div>
+                            <div style={LBL}>ИНН контрагента</div>
+                            <div style={{fontSize:13, color:'var(--text2)', display:'flex', alignItems:'center', gap:6}}>
+                              {e.counterparty_inn || '—'}
+                              {e.counterparty_inn && (
+                                <button onClick={ev=>{ev.stopPropagation();copyToClipboard(e.counterparty_inn,'ИНН скопирован')}}
+                                  style={{background:'none', border:'none', cursor:'pointer', fontSize:12, color:'var(--accent)', padding:0}}>📋</button>
+                              )}
+                            </div>
+                          </div>
                         </div>
-                        {e.reviewed_by&&<div style={{fontSize:11, color:'var(--success)', marginBottom:6}}>✅ Проверено: {e.reviewed_by}</div>}
+
+                        {/* AI объяснение */}
                         {e.ai_reasoning&&(
-                          <div style={{background:'var(--ai-light)', borderRadius:'var(--radius-sm)', padding:'8px 12px', fontSize:12, color:'var(--ai-text)', border:'1px solid var(--border)'}}>
-                            🤖 <strong style={{color:'var(--ai)'}}>AI:</strong> {e.ai_reasoning}
+                          <div style={{margin:'0 14px 10px', background:'var(--ai-light)', borderRadius:'var(--radius-sm)', padding:'8px 12px', fontSize:12, color:'var(--ai-text)', border:'1px solid var(--border)'}}>
+                            🤖 <strong style={{color:'var(--ai)'}}>AI ({e.ai_confidence}%):</strong> {e.ai_reasoning}
                           </div>
                         )}
+                        {e.reviewed_by&&(
+                          <div style={{margin:'0 14px 6px', fontSize:11, color:'var(--success)'}}>✅ Проверено: {e.reviewed_by}</div>
+                        )}
+
+                        {/* Контекстные действия */}
+                        <div style={{padding:'10px 14px 14px', borderTop:'1px solid var(--border)', display:'flex', gap:8, flexWrap:'wrap', alignItems:'center'}}>
+                          <div style={{fontSize:11, fontWeight:700, color:'var(--text3)', textTransform:'uppercase', letterSpacing:'0.06em', marginRight:4}}>
+                            Действия:
+                          </div>
+
+                          {/* Показать документ */}
+                          {e.document_id && (
+                            <CtxBtn icon='📄' label='Оригинал' onClick={ev=>{ev.stopPropagation();setDocViewEntry(e)}}/>
+                          )}
+
+                          {/* Копировать контрагента */}
+                          {e.counterparty && (
+                            <CtxBtn icon='📋' label='Копировать контрагента'
+                              onClick={ev=>{ev.stopPropagation();copyToClipboard(e.counterparty,'Контрагент скопирован')}}/>
+                          )}
+
+                          {/* Копировать ИНН */}
+                          {e.counterparty_inn && (
+                            <CtxBtn icon='🔢' label='Копировать ИНН'
+                              onClick={ev=>{ev.stopPropagation();copyToClipboard(e.counterparty_inn,'ИНН скопирован')}}/>
+                          )}
+
+                          {/* Найти в банке — заглушка до реализации банка */}
+                          <CtxBtn icon='🏦' label='Найти в банке' muted
+                            onClick={ev=>{ev.stopPropagation();alert('Раздел «Банк и касса» будет доступен в следующем обновлении')}}/>
+
+                          {/* Фильтр по контрагенту */}
+                          {e.counterparty && (
+                            <CtxBtn icon='🔍' label={'Все записи: ' + e.counterparty.split(' ').slice(0,2).join(' ')}
+                              onClick={ev=>{ev.stopPropagation();setFilterCounterparty(e.counterparty);setShowFilters(true);setExpanded(null)}}/>
+                          )}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -573,7 +637,113 @@ export default function Journal() {
       {reviewEntry&&(
         <ReviewModal entry={reviewEntry} onClose={()=>setReviewEntry(null)} onDone={()=>{setReviewEntry(null);loadJournal()}}/>
       )}
+
+      {/* Просмотр оригинала документа */}
+      {docViewEntry&&(
+        <DocViewModal entry={docViewEntry} onClose={()=>setDocViewEntry(null)}/>
+      )}
+
+      {/* Toast уведомление о копировании */}
+      {copyMsg&&(
+        <div style={{position:'fixed', bottom:24, left:'50%', transform:'translateX(-50%)', background:'var(--text)', color:'var(--bg)', padding:'10px 20px', borderRadius:'var(--radius)', fontSize:13, fontWeight:700, zIndex:300, boxShadow:'var(--shadow-lg)', pointerEvents:'none'}}>
+          ✓ {copyMsg}
+        </div>
+      )}
     </div>
+  )
+}
+
+// ── Просмотр оригинала документа ─────────────────────────
+function DocViewModal({ entry, onClose }) {
+  const base = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) || ''
+  const fileUrl = entry.document_id
+    ? null  // будет загружен через API
+    : null
+
+  // Загружаем путь к файлу через document_id
+  const [docFileUrl, setDocFileUrl] = useState(null)
+  const [docInfo, setDocInfo] = useState(null)
+
+  useEffect(() => {
+    if (!entry.document_id) return
+    docsApi.getById(entry.document_id).then(r => {
+      const doc = r.data
+      setDocInfo(doc)
+      if (doc.file_path) {
+        setDocFileUrl(`${base}/api/scanner/file?path=${encodeURIComponent(doc.file_path)}`)
+      }
+    }).catch(() => {})
+  }, [entry.document_id])
+
+  return (
+    <div style={{position:'fixed', inset:0, background:'rgba(30,42,62,0.6)', zIndex:200, display:'flex', alignItems:'center', justifyContent:'center', padding:16}}>
+      <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius-lg)', width:'100%', maxWidth:700, maxHeight:'90vh', overflow:'hidden', display:'flex', flexDirection:'column', boxShadow:'var(--shadow-lg)'}}>
+
+        {/* Шапка */}
+        <div style={{padding:'14px 18px', borderBottom:'1px solid var(--border)', display:'flex', justifyContent:'space-between', alignItems:'center', background:'var(--surface2)', flexShrink:0}}>
+          <div>
+            <div style={{fontWeight:800, fontSize:14, color:'var(--text)'}}>
+              {entry.doc_number ? `Документ №${entry.doc_number}` : 'Документ'} — оригинал
+            </div>
+            <div style={{fontSize:12, color:'var(--text3)', marginTop:2}}>
+              {entry.counterparty||'—'} · {entry.doc_date||entry.entry_date}
+            </div>
+          </div>
+          <div style={{display:'flex', gap:8, alignItems:'center'}}>
+            {docFileUrl && (
+              <a href={docFileUrl} target='_blank' rel='noreferrer'
+                style={{fontSize:12, color:'var(--accent)', fontWeight:700, textDecoration:'none', background:'var(--accent-light)', padding:'5px 12px', borderRadius:'var(--radius-sm)', border:'1px solid var(--border)'}}>
+                🔗 Открыть в новой вкладке
+              </a>
+            )}
+            <button onClick={onClose} style={{background:'none', border:'none', color:'var(--text3)', cursor:'pointer', fontSize:22, lineHeight:1}}>×</button>
+          </div>
+        </div>
+
+        {/* Тело */}
+        <div style={{flex:1, overflow:'auto', padding:16}}>
+          {docFileUrl ? (
+            <object data={docFileUrl} type='application/pdf'
+              style={{width:'100%', height:500, border:'none'}}>
+              <img src={docFileUrl} alt='document' style={{width:'100%', borderRadius:'var(--radius-sm)'}}/>
+            </object>
+          ) : (
+            <div style={{textAlign:'center', padding:40, color:'var(--text3)'}}>
+              {entry.document_id ? 'Загрузка...' : 'Файл недоступен'}
+            </div>
+          )}
+
+          {/* Данные документа */}
+          {docInfo && (
+            <div style={{marginTop:14, background:'var(--surface2)', borderRadius:'var(--radius)', padding:'12px 16px', border:'1px solid var(--border)'}}>
+              <div style={{display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, fontSize:12}}>
+                {[['Тип', docInfo.doc_type], ['Номер', docInfo.doc_number], ['Дата', docInfo.doc_date?.slice(0,10)],
+                  ['Контрагент', docInfo.counterparty], ['ИНН', docInfo.counterparty_inn], ['Сумма', docInfo.amount ? `${docInfo.amount} ${docInfo.currency}` : null]
+                ].filter(([,v])=>v).map(([label,val])=>(
+                  <div key={label}>
+                    <div style={{fontSize:10, color:'var(--text3)', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:3}}>{label}</div>
+                    <div style={{color:'var(--text)', fontWeight:600}}>{val}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Кнопка контекстного действия ─────────────────────────
+function CtxBtn({ icon, label, onClick, muted }) {
+  return (
+    <button onClick={onClick}
+      style={{display:'flex', alignItems:'center', gap:5, background: muted ? 'none' : 'var(--surface)', border:`1px solid ${muted ? 'var(--border)' : 'var(--border2)'}`, borderRadius:'var(--radius-sm)', padding:'5px 10px', fontSize:12, fontWeight:600, color: muted ? 'var(--text4)' : 'var(--text2)', cursor:'pointer', fontFamily:'Manrope, sans-serif', transition:'all 0.1s'}}
+      onMouseEnter={ev=>{if(!muted){ev.currentTarget.style.background='var(--accent-light)';ev.currentTarget.style.color='var(--accent)';ev.currentTarget.style.borderColor='var(--accent)'}}}
+      onMouseLeave={ev=>{ev.currentTarget.style.background=muted?'none':'var(--surface)';ev.currentTarget.style.color=muted?'var(--text4)':'var(--text2)';ev.currentTarget.style.borderColor=muted?'var(--border)':'var(--border2)'}}>
+      <span>{icon}</span>
+      <span>{label}</span>
+    </button>
   )
 }
 

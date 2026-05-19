@@ -52,6 +52,10 @@ export const scanner = {
   },
 }
 
+export const documents = {
+  getById: (id) => api.get(`/api/documents/doc/${id}`),
+}
+
 export const posting = {
   autoAll:        (companyId)       => api.post(`/api/posting/auto-all?company_id=${companyId}`),
   auto:           (docId)           => api.post(`/api/posting/auto/${docId}`),
