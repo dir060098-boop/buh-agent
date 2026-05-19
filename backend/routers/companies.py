@@ -121,19 +121,24 @@ def dashboard_summary(db: Session = Depends(get_db), user=Depends(get_current_us
             models.JournalEntry.company_id == c.id
         ).count()
 
-        # Дедлайны
-        overdue = db.query(models.Deadline).filter(
-            models.Deadline.company_id == c.id,
-            models.Deadline.is_done == False,
-            models.Deadline.due_date < today
-        ).all() if hasattr(models, 'Deadline') else []
-
-        upcoming = db.query(models.Deadline).filter(
-            models.Deadline.company_id == c.id,
-            models.Deadline.is_done == False,
-            models.Deadline.due_date >= today,
-            models.Deadline.due_date <= soon
-        ).all() if hasattr(models, 'Deadline') else []
+        # Дедлайны — безопасно, таблица может не существовать
+        overdue = []
+        upcoming = []
+        try:
+            if hasattr(models, 'Deadline'):
+                overdue = db.query(models.Deadline).filter(
+                    models.Deadline.company_id == c.id,
+                    models.Deadline.is_done == False,
+                    models.Deadline.deadline_date < today
+                ).all()
+                upcoming = db.query(models.Deadline).filter(
+                    models.Deadline.company_id == c.id,
+                    models.Deadline.is_done == False,
+                    models.Deadline.deadline_date >= today,
+                    models.Deadline.deadline_date <= soon
+                ).all()
+        except Exception:
+            pass
 
         # Формируем события для ленты
         if pending_docs > 0:
@@ -170,7 +175,7 @@ def dashboard_summary(db: Session = Depends(get_db), user=Depends(get_current_us
             })
 
         for dl in upcoming:
-            days_left = (dl.due_date - today).days
+            days_left = (dl.deadline_date - today).days
             feed.append({
                 "type": "upcoming_deadline",
                 "priority": "info",
