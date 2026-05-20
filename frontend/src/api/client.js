@@ -50,6 +50,8 @@ export const scanner = {
     const base = import.meta.env.VITE_API_URL || ''
     return `${base}/api/scanner/file?path=${encodeURIComponent(filePath)}`
   },
+  previewPosting: (companyId, recognition) =>
+    api.post(`/api/scanner/${companyId}/preview-posting`, recognition),
 }
 
 export const posting = {

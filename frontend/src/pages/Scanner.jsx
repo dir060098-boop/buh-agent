@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { scanner } from '../api/client'
+import { scanner, posting } from '../api/client'
 
 const DOC_TYPES = [
   ['invoice','Счёт на оплату'],['act','Акт'],['esf','ЭСФ'],
@@ -37,6 +37,14 @@ export default function Scanner() {
   const [duplicateWarning, setDuplicateWarning] = useState(null)
   const [form, setForm] = useState({})
   const [savedResult, setSavedResult] = useState(null)
+  const [previewPosting, setPreviewPosting] = useState(null)
+  const [postingLoading, setPostingLoading] = useState(false)
+  // Редактируемые счета
+  const [editDebit, setEditDebit] = useState('')
+  const [editCredit, setEditCredit] = useState('')
+  const [editDesc, setEditDesc] = useState('')
+  const [accountSearch, setAccountSearch] = useState('')
+  const [accounts, setAccounts] = useState([])
 
   function handleFile(file) {
     if (!file) return
@@ -82,6 +90,23 @@ export default function Scanner() {
       })
       setRecognized(r)
       setState('preview')
+      // Загружаем план счетов для редактирования
+      posting.chartOfAccounts(companyId).then(res => setAccounts(res.data)).catch(() => {})
+      // Запрашиваем предварительную разноску
+      setPostingLoading(true)
+      scanner.previewPosting(companyId, {
+        doc_type: r.doc_type,
+        counterparty: r.counterparty,
+        amount: r.amount,
+        currency: r.currency,
+        operation_type: r.operation_type,
+        summary: r.summary
+      }).then(res => {
+        setPreviewPosting(res.data)
+        setEditDebit(res.data.debit_account || '')
+        setEditCredit(res.data.credit_account || '')
+        setEditDesc(res.data.description || '')
+      }).catch(() => {}).finally(() => setPostingLoading(false))
     } catch(e) {
       setError(e.response?.data?.detail || 'Ошибка при распознавании')
       setState('error')
@@ -128,6 +153,11 @@ export default function Scanner() {
     setDuplicateWarning(null)
     setForm({})
     setSavedResult(null)
+    setPreviewPosting(null)
+    setEditDebit('')
+    setEditCredit('')
+    setEditDesc('')
+    setAccountSearch('')
   }
 
   function handleDrop(e) {
@@ -332,6 +362,88 @@ export default function Scanner() {
                       ))}
                     </div>
                   )}
+
+                  {/* ── БЛОК ДТ/КТ ── */}
+                  <div style={{background:'var(--surface2)', borderRadius:'var(--radius)', padding:'14px 16px', border:'1px solid var(--border)'}}>
+                    <div style={{fontSize:11, fontWeight:700, color:'var(--text3)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:10}}>
+                      Предложенная проводка AI
+                      {postingLoading && <span style={{marginLeft:8, color:'var(--ai)', fontWeight:400}}>⏳ определяю счета...</span>}
+                      {previewPosting && !postingLoading && (
+                        <span style={{marginLeft:8, color:previewPosting.confidence>=80?'var(--success)':previewPosting.confidence>=60?'var(--warn)':'var(--error)', fontWeight:700}}>
+                          {previewPosting.confidence}% AI
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Счета */}
+                    <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, marginBottom:10}}>
+                      <div>
+                        <label style={LBL}>Дебет (Дт) *</label>
+                        <input value={editDebit} onChange={e=>setEditDebit(e.target.value)}
+                          placeholder="7350" style={{...INP, color:'var(--accent)', fontWeight:700, fontVariantNumeric:'tabular-nums'}}/>
+                        {previewPosting?.debit_account_name && (
+                          <div style={{fontSize:11, color:'var(--text3)', marginTop:3}}>{previewPosting.debit_account_name}</div>
+                        )}
+                      </div>
+                      <div>
+                        <label style={LBL}>Кредит (Кт) *</label>
+                        <input value={editCredit} onChange={e=>setEditCredit(e.target.value)}
+                          placeholder="3210" style={{...INP, color:'var(--success)', fontWeight:700, fontVariantNumeric:'tabular-nums'}}/>
+                        {previewPosting?.credit_account_name && (
+                          <div style={{fontSize:11, color:'var(--text3)', marginTop:3}}>{previewPosting.credit_account_name}</div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Содержание операции */}
+                    <div style={{marginBottom:10}}>
+                      <label style={LBL}>Содержание операции</label>
+                      <input value={editDesc} onChange={e=>setEditDesc(e.target.value)}
+                        placeholder="Описание проводки..." style={INP}/>
+                    </div>
+
+                    {/* Поиск по плану счетов */}
+                    <div>
+                      <label style={LBL}>Поиск по плану счетов</label>
+                      <input value={accountSearch} onChange={e=>setAccountSearch(e.target.value)}
+                        placeholder="Введите код или название счёта..."
+                        style={{...INP, marginBottom: accountSearch && accounts.filter(a=>a.code.includes(accountSearch)||a.name.toLowerCase().includes(accountSearch.toLowerCase())).length > 0 ? 0 : undefined}}/>
+                      {accountSearch && (() => {
+                        const filtered = accounts.filter(a =>
+                          a.code.includes(accountSearch) || a.name.toLowerCase().includes(accountSearch.toLowerCase())
+                        ).slice(0, 8)
+                        return filtered.length > 0 ? (
+                          <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius-sm)', marginTop:4, maxHeight:200, overflowY:'auto', boxShadow:'var(--shadow)'}}>
+                            {filtered.map(a => (
+                              <div key={a.code} style={{display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 12px', borderBottom:'1px solid var(--border)', fontSize:12}}>
+                                <div>
+                                  <span style={{color:'var(--accent)', fontWeight:700, marginRight:8}}>{a.code}</span>
+                                  <span style={{color:'var(--text2)'}}>{a.name}</span>
+                                </div>
+                                <div style={{display:'flex', gap:6, flexShrink:0}}>
+                                  <button onClick={()=>{setEditDebit(a.code);setAccountSearch('')}}
+                                    style={{background:'var(--accent-light)', border:'1px solid var(--border)', color:'var(--accent)', fontSize:10, padding:'3px 8px', borderRadius:'var(--radius-sm)', cursor:'pointer', fontWeight:700, fontFamily:'inherit'}}>
+                                    → Дт
+                                  </button>
+                                  <button onClick={()=>{setEditCredit(a.code);setAccountSearch('')}}
+                                    style={{background:'var(--success-light)', border:'1px solid var(--border)', color:'var(--success)', fontSize:10, padding:'3px 8px', borderRadius:'var(--radius-sm)', cursor:'pointer', fontWeight:700, fontFamily:'inherit'}}>
+                                    → Кт
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null
+                      })()}
+                    </div>
+
+                    {/* AI обоснование */}
+                    {previewPosting?.reasoning && !postingLoading && (
+                      <div style={{marginTop:10, fontSize:11, color:'var(--ai-text)', background:'var(--ai-light)', padding:'8px 12px', borderRadius:'var(--radius-sm)', border:'1px solid var(--border)'}}>
+                        🤖 {previewPosting.reasoning}
+                      </div>
+                    )}
+                  </div>
 
                   <div style={{display:'flex', alignItems:'center', gap:10}}>
                     <input type="checkbox" id="auto_post" checked={form.auto_post}

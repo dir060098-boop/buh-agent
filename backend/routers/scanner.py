@@ -213,6 +213,84 @@ class ConfirmData(BaseModel):
 
 # ── ЭНДПОИНТЫ ────────────────────────────────────────────
 
+@router.post("/{company_id}/preview-posting")
+async def preview_posting(
+    company_id: int,
+    recognition: dict,
+    db: Session = Depends(get_db),
+    user = Depends(get_current_user)
+):
+    """
+    Предварительная разноска для предпросмотра в сканере.
+    НЕ сохраняет ничего в БД — только возвращает предложенные счета.
+    """
+    from routers.posting import get_chart_summary, get_posting_rules_summary
+    import anthropic as ant_module
+    import json as json_module
+
+    company = db.query(models.Company).filter(
+        models.Company.id == company_id,
+        models.Company.owner_id == user.id
+    ).first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Компания не найдена")
+
+    chart_summary = get_chart_summary(db)
+    rules_summary = get_posting_rules_summary(db)
+
+    client = ant_module.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+
+    prompt = f"""Ты — бухгалтер КР (МСФО). Определи счета Дт и Кт для этого документа.
+
+Тип: {recognition.get("doc_type", "other")}
+Контрагент: {recognition.get("counterparty", "—")}
+Сумма: {recognition.get("amount", 0)} {recognition.get("currency", "KGS")}
+Тип операции: {recognition.get("operation_type", "—")}
+Описание: {recognition.get("summary", "—")}
+
+ПЛАН СЧЕТОВ КР:
+{chart_summary}
+
+ПРАВИЛА РАЗНОСКИ:
+{rules_summary}
+
+Верни ТОЛЬКО JSON:
+{{
+  "debit_account": "XXXX",
+  "debit_account_name": "название",
+  "credit_account": "XXXX",
+  "credit_account_name": "название",
+  "description": "краткое содержание операции",
+  "confidence": 0-100,
+  "reasoning": "обоснование"
+}}"""
+
+    try:
+        response = client.messages.create(
+            model="claude-sonnet-4-5",
+            max_tokens=600,
+            messages=[{"role": "user", "content": prompt}]
+        )
+        raw = response.content[0].text.strip()
+        backtick = "```"
+        if backtick in raw:
+            parts = raw.split(backtick)
+            result = {}
+            for part in parts:
+                part = part.strip()
+                if part.startswith("json"): part = part[4:].strip()
+                try: result = json_module.loads(part); break
+                except: continue
+        else:
+            result = json_module.loads(raw)
+        return result
+    except Exception as e:
+        return {
+            "debit_account": "7590", "debit_account_name": "Прочие расходы",
+            "credit_account": "3210", "credit_account_name": "Счета к оплате",
+            "description": "", "confidence": 0, "reasoning": str(e)
+        }
+
 @router.post("/{company_id}/recognize")
 async def recognize_document(
     company_id: int,
