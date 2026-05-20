@@ -105,4 +105,5 @@ export const communications = {
   reminders: (companyId) => api.get(`/api/communications/${companyId}/reminders`),
 }
 
+export { api }
 export default api

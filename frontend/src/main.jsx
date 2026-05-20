@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import CompanyMenu from './pages/CompanyMenu'
+import Deadlines from './pages/Deadlines'
 import Scanner from './pages/Scanner'
 import Journal from './pages/Journal'
 import './index.css'
@@ -20,6 +21,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <Route path="/company/:id" element={<PrivateRoute><CompanyMenu /></PrivateRoute>} />
       <Route path="/company/:companyId/scanner" element={<PrivateRoute><Scanner /></PrivateRoute>} />
       <Route path="/company/:companyId/journal" element={<PrivateRoute><Journal /></PrivateRoute>} />
+      <Route path="/company/:companyId/deadlines" element={<PrivateRoute><Deadlines /></PrivateRoute>} />
       <Route path="*" element={<Navigate to="/" />} />
     </Routes>
   </BrowserRouter>

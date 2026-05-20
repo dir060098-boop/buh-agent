@@ -22,6 +22,26 @@ app.include_router(documents.router,      prefix="/api/documents",      tags=["d
 app.include_router(esf.router,            prefix="/api/esf",            tags=["esf"])
 app.include_router(bank.router,           prefix="/api/bank",           tags=["bank"])
 app.include_router(salary.router,         prefix="/api/salary",         tags=["salary"])
+
+# Миграция полей Deadline (добавлены в обновлении)
+try:
+    with engine.connect() as conn:
+        for col, defn in [
+            ("remind_date",    "DATETIME"),
+            ("period",         "VARCHAR"),
+            ("done_at",        "DATETIME"),
+            ("done_by",        "VARCHAR"),
+            ("notes",          "VARCHAR"),
+            ("auto_generated", "BOOLEAN DEFAULT 0"),
+        ]:
+            try:
+                conn.execute(text(f"ALTER TABLE deadlines ADD COLUMN {col} {defn}"))
+                conn.commit()
+            except Exception:
+                pass
+except Exception:
+    pass
+
 app.include_router(deadlines.router,      prefix="/api/deadlines",      tags=["deadlines"])
 app.include_router(communications.router, prefix="/api/communications", tags=["communications"])
 app.include_router(scanner.router,        prefix="/api/scanner",        tags=["scanner"])

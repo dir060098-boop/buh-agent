@@ -125,14 +125,20 @@ class Employee(Base):
 
 class Deadline(Base):
     __tablename__ = "deadlines"
-    id = Column(Integer, primary_key=True)
-    company_id = Column(Integer, ForeignKey("companies.id"))
-    title = Column(String)
-    deadline_date = Column(DateTime)
-    tax_type = Column(String)
-    is_done = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    company = relationship("Company", back_populates="deadlines")
+    id             = Column(Integer, primary_key=True)
+    company_id     = Column(Integer, ForeignKey("companies.id"))
+    title          = Column(String)          # "НДС за май 2026"
+    tax_type       = Column(String)          # nds|income_tax|sales_tax|social_fund|unified_tax|patent|annual|other
+    period         = Column(String)          # "2026-05" или "2026-Q2" или "2026"
+    remind_date    = Column(DateTime)        # дата напоминания (обычно 15-е)
+    deadline_date  = Column(DateTime)        # дата сдачи (обычно 20-е)
+    is_done        = Column(Boolean, default=False)
+    done_at        = Column(DateTime, nullable=True)
+    done_by        = Column(String, nullable=True)   # email бухгалтера
+    notes          = Column(String, nullable=True)   # комментарий
+    auto_generated = Column(Boolean, default=False)  # создан автоматически
+    created_at     = Column(DateTime(timezone=True), server_default=func.now())
+    company        = relationship("Company", back_populates="deadlines")
 
 # ============================================================
 # ПЛАН СЧЕТОВ КР
