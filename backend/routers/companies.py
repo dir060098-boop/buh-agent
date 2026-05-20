@@ -125,17 +125,20 @@ def dashboard_summary(db: Session = Depends(get_db), user=Depends(get_current_us
         overdue = []
         upcoming = []
         try:
+            from datetime import datetime as _dt
+            _today_dt = _dt.combine(today, _dt.min.time())
+            _soon_dt  = _dt.combine(soon,  _dt.min.time())
             if hasattr(models, 'Deadline'):
                 overdue = db.query(models.Deadline).filter(
                     models.Deadline.company_id == c.id,
                     models.Deadline.is_done == False,
-                    models.Deadline.deadline_date < today
+                    models.Deadline.deadline_date < _today_dt
                 ).all()
                 upcoming = db.query(models.Deadline).filter(
                     models.Deadline.company_id == c.id,
                     models.Deadline.is_done == False,
-                    models.Deadline.deadline_date >= today,
-                    models.Deadline.deadline_date <= soon
+                    models.Deadline.deadline_date >= _today_dt,
+                    models.Deadline.deadline_date <= _soon_dt
                 ).all()
         except Exception:
             pass
@@ -175,7 +178,7 @@ def dashboard_summary(db: Session = Depends(get_db), user=Depends(get_current_us
             })
 
         for dl in upcoming:
-            days_left = (dl.deadline_date - today).days
+            days_left = (dl.deadline_date.date() - today).days if dl.deadline_date else 0
             feed.append({
                 "type": "upcoming_deadline",
                 "priority": "info",
