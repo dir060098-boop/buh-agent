@@ -380,19 +380,61 @@ def get_chart_of_accounts(level: Optional[int] = None, section: Optional[str] = 
 
 @router.post("/seed-chart")
 def seed_chart_of_accounts(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Добавляет только отсутствующие счета (не трогает существующие)."""
     from seed_chart import CHART_OF_ACCOUNTS, POSTING_RULES
     loaded_accounts = 0
     for item in CHART_OF_ACCOUNTS:
-        if not db.query(ChartOfAccount).filter(ChartOfAccount.code == item["code"]).first():
+        existing = db.query(ChartOfAccount).filter(ChartOfAccount.code == item["code"]).first()
+        if existing:
+            # Обновляем название если изменилось
+            existing.name = item["name"]
+        else:
             db.add(ChartOfAccount(**item))
             loaded_accounts += 1
     loaded_rules = 0
     for item in POSTING_RULES:
-        if not db.query(PostingRule).filter(PostingRule.rule_name == item["rule_name"]).first():
+        existing = db.query(PostingRule).filter(PostingRule.rule_name == item["rule_name"]).first()
+        if existing:
+            existing.debit_account  = item["debit_account"]
+            existing.credit_account = item["credit_account"]
+            existing.description    = item["description"]
+            existing.priority       = item["priority"]
+            existing.operation_keywords = item["operation_keywords"]
+        else:
             db.add(PostingRule(**item))
             loaded_rules += 1
     db.commit()
-    return {"success": True, "accounts_loaded": loaded_accounts, "rules_loaded": loaded_rules}
+    total_accounts = db.query(ChartOfAccount).count()
+    total_rules    = db.query(PostingRule).count()
+    return {
+        "success": True,
+        "accounts_added": loaded_accounts,
+        "rules_added": loaded_rules,
+        "total_accounts": total_accounts,
+        "total_rules": total_rules
+    }
+
+
+@router.post("/reseed-chart")
+def reseed_chart(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """ПОЛНАЯ перезагрузка плана счетов — удаляет все старые и загружает новые.
+    Вызывать при смене официального плана счетов."""
+    from seed_chart import CHART_OF_ACCOUNTS, POSTING_RULES
+    # Удаляем только правила разноски и счета (не трогаем проводки)
+    db.query(PostingRule).delete()
+    db.query(ChartOfAccount).delete()
+    db.commit()
+    for item in CHART_OF_ACCOUNTS:
+        db.add(ChartOfAccount(**item))
+    for item in POSTING_RULES:
+        db.add(PostingRule(**item))
+    db.commit()
+    return {
+        "success": True,
+        "accounts_loaded": len(CHART_OF_ACCOUNTS),
+        "rules_loaded": len(POSTING_RULES),
+        "message": f"План счетов КР обновлён: {len(CHART_OF_ACCOUNTS)} счетов, {len(POSTING_RULES)} правил разноски"
+    }
 
 
 # ── ФЛОУ "НА ПРОВЕРКЕ" ──────────────────────────────────
