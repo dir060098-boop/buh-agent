@@ -213,6 +213,47 @@ class DeadlineDone(BaseModel):
 
 # ── ЭНДПОИНТЫ ─────────────────────────────────────────────
 
+@router.post("/generate/{company_id}")
+def generate_deadlines(
+    company_id: int,
+    db: Session = Depends(get_db),
+    user = Depends(get_current_user)
+):
+    """Автогенерация дедлайнов на 12 месяцев вперёд."""
+    company = db.query(models.Company).filter(
+        models.Company.id == company_id,
+        models.Company.owner_id == user.id
+    ).first()
+    if not company:
+        raise HTTPException(404, "Компания не найдена")
+
+    created = generate_deadlines_for_company(company, db, months_ahead=12)
+    return {"created": len(created), "titles": created}
+
+
+@router.get("/active/{company_id}")
+def active_deadlines_summary(
+    company_id: int,
+    db: Session = Depends(get_db),
+    user = Depends(get_current_user)
+):
+    """Краткая сводка — только активные напоминания и просроченные."""
+    company = db.query(models.Company).filter(
+        models.Company.id == company_id,
+        models.Company.owner_id == user.id
+    ).first()
+    if not company:
+        raise HTTPException(404, "Компания не найдена")
+
+    deadlines = db.query(models.Deadline).filter(
+        models.Deadline.company_id == company_id,
+        models.Deadline.is_done == False
+    ).order_by(models.Deadline.deadline_date).all()
+
+    result = [deadline_to_dict(d) for d in deadlines]
+    active = [d for d in result if d["status"] in ("remind", "due_today", "overdue")]
+    return {"active": active, "total_open": len(result)}
+
 @router.get("/{company_id}")
 def list_deadlines(
     company_id: int,
@@ -235,24 +276,6 @@ def list_deadlines(
     if status:
         result = [d for d in result if d["status"] == status]
     return result
-
-
-@router.post("/generate/{company_id}")
-def generate_deadlines(
-    company_id: int,
-    db: Session = Depends(get_db),
-    user = Depends(get_current_user)
-):
-    """Автогенерация дедлайнов на 12 месяцев вперёд."""
-    company = db.query(models.Company).filter(
-        models.Company.id == company_id,
-        models.Company.owner_id == user.id
-    ).first()
-    if not company:
-        raise HTTPException(404, "Компания не найдена")
-
-    created = generate_deadlines_for_company(company, db, months_ahead=12)
-    return {"created": len(created), "titles": created}
 
 
 @router.post("/{company_id}")
@@ -330,26 +353,3 @@ def delete_deadline(
     db.delete(dl); db.commit()
     return {"ok": True}
 
-
-@router.get("/active/{company_id}")
-def active_deadlines_summary(
-    company_id: int,
-    db: Session = Depends(get_db),
-    user = Depends(get_current_user)
-):
-    """Краткая сводка — только активные напоминания и просроченные."""
-    company = db.query(models.Company).filter(
-        models.Company.id == company_id,
-        models.Company.owner_id == user.id
-    ).first()
-    if not company:
-        raise HTTPException(404, "Компания не найдена")
-
-    deadlines = db.query(models.Deadline).filter(
-        models.Deadline.company_id == company_id,
-        models.Deadline.is_done == False
-    ).order_by(models.Deadline.deadline_date).all()
-
-    result = [deadline_to_dict(d) for d in deadlines]
-    active = [d for d in result if d["status"] in ("remind", "due_today", "overdue")]
-    return {"active": active, "total_open": len(result)}
