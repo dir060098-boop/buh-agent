@@ -171,7 +171,7 @@ export default function Deadlines() {
                   </div>
                   <button onClick={()=>{setDoneModal(d);setDoneNote('')}}
                     style={{background:'var(--success)', color:'#fff', border:'none', padding:'4px 12px', borderRadius:'var(--radius-sm)', fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'inherit', flexShrink:0}}>
-                    ✅ Отметить сданным
+                    ✅ Отчёт сдан
                   </button>
                 </div>
               ))}
@@ -286,17 +286,18 @@ export default function Deadlines() {
 
                       {/* Действия */}
                       <div style={{display:'flex', gap:6, flexShrink:0}}>
-                        {!d.is_done ? (
-                          <button onClick={()=>{setDoneModal(d);setDoneNote('')}}
-                            style={{background:'var(--success)', color:'#fff', border:'none', padding:'6px 12px', borderRadius:'var(--radius-sm)', fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'inherit', whiteSpace:'nowrap', boxShadow:'var(--shadow-sm)'}}>
-                            ✅ Сдан
-                          </button>
-                        ) : (
+                        {/* Кнопка "Отчёт сдан" — только когда пришло время сдавать */}
+                        {d.status === 'done' ? (
                           <button onClick={()=>handleReopen(d.id)}
                             style={{background:'none', color:'var(--text3)', border:'1px solid var(--border)', padding:'5px 10px', borderRadius:'var(--radius-sm)', fontSize:11, cursor:'pointer', fontFamily:'inherit'}}>
                             ↩ Переоткрыть
                           </button>
-                        )}
+                        ) : ['remind','due_today','overdue'].includes(d.status) ? (
+                          <button onClick={()=>{setDoneModal(d);setDoneNote('')}}
+                            style={{background:'var(--success)', color:'#fff', border:'none', padding:'6px 12px', borderRadius:'var(--radius-sm)', fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'inherit', whiteSpace:'nowrap', boxShadow:'var(--shadow-sm)'}}>
+                            ✅ Отчёт сдан
+                          </button>
+                        ) : null}
                         {!d.auto_generated && (
                           <button onClick={()=>handleDelete(d.id)}
                             style={{background:'none', color:'var(--error)', border:'1px solid var(--error)33', padding:'5px 8px', borderRadius:'var(--radius-sm)', fontSize:11, cursor:'pointer', fontFamily:'inherit'}}>
