@@ -1,0 +1,16 @@
+# Nixpacks конфигурация для бэкенда БухАгент
+# Устанавливает Tesseract OCR с русским и кыргызским языками
+
+[phases.setup]
+nixPkgs = [
+  "tesseract",
+  "tesseract-all",  # все языки включая rus и kir
+]
+
+[phases.install]
+cmds = [
+  "pip install -r requirements.txt"
+]
+
+[start]
+cmd = "uvicorn main:app --host 0.0.0.0 --port $PORT"

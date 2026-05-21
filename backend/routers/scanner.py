@@ -119,11 +119,23 @@ def prepare_for_claude(content: bytes, media_type: str):
     return b64, media_type
 
 
-def build_claude_message(b64: str, media_type: str) -> dict:
-    if media_type == "application/pdf":
-        content_block = {"type":"document","source":{"type":"base64","media_type":"application/pdf","data":b64}}
+def build_claude_message(b64_or_text: str, media_type: str) -> dict:
+    """
+    Строит сообщение для Claude.
+    media_type="text" — текст из OCR, отправляем как текст (экономия токенов, выше точность)
+    иначе — изображение в base64
+    """
+    if media_type == "text":
+        # Текст извлечён через OCR — отправляем напрямую
+        content_block = {
+            "type": "text",
+            "text": f"Вот текст документа, извлечённый через OCR:\n\n{b64_or_text}\n\n{SCANNER_PROMPT}"
+        }
+        return {"role":"user","content":[content_block]}
+    elif media_type == "application/pdf":
+        content_block = {"type":"document","source":{"type":"base64","media_type":"application/pdf","data":b64_or_text}}
     else:
-        content_block = {"type":"image","source":{"type":"base64","media_type":media_type,"data":b64}}
+        content_block = {"type":"image","source":{"type":"base64","media_type":media_type,"data":b64_or_text}}
     return {"role":"user","content":[content_block,{"type":"text","text":SCANNER_PROMPT}]}
 
 
