@@ -34,6 +34,12 @@ router = APIRouter()
 REMIND_DAY  = 15   # напоминание с 15-го числа
 DEADLINE_DAY = 20  # сдача до 20-го числа
 
+MONTHS_RU = {
+    1:'январь', 2:'февраль', 3:'март', 4:'апрель',
+    5:'май', 6:'июнь', 7:'июль', 8:'август',
+    9:'сентябрь', 10:'октябрь', 11:'ноябрь', 12:'декабрь'
+}
+
 # Налоги по режимам
 TAX_SCHEDULE = {
     "ОРН (общий режим)": [
@@ -126,7 +132,7 @@ def generate_deadlines_for_company(company: models.Company, db: Session, months_
                 dl_date  = deadline_month.replace(day=DEADLINE_DAY)
                 rem_date = deadline_month.replace(day=REMIND_DAY)
                 period_str = period_date.strftime("%Y-%m")
-                title = f"{tax['title']} за {period_date.strftime('%B %Y').lower()}"
+                title = f"{tax['title']} за {MONTHS_RU[period_date.month]} {period_date.year}"
 
                 # Не создаём дубли
                 exists = db.query(models.Deadline).filter(
