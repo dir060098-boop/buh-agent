@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { api } from '../api/client'
+import { deadlines as deadlinesApi, api } from '../api/client'
 
 // ── Статусы ───────────────────────────────────────────────
 const STATUS = {
@@ -55,7 +55,7 @@ export default function Deadlines() {
     setLoading(true)
     try {
       const [dlRes, coRes] = await Promise.all([
-        api.get(`/api/deadlines/${companyId}`),
+        deadlinesApi.list(companyId),
         api.get(`/api/companies/${companyId}`)
       ])
       setDeadlines(dlRes.data)
@@ -99,7 +99,7 @@ export default function Deadlines() {
     if (!createForm.title || !createForm.deadline_date) return
     setCreating(true)
     try {
-      await api.post(`/api/deadlines/${companyId}`, createForm)
+      await deadlinesApi.create(companyId, createForm)
       setShowCreate(false)
       setCreateForm({ title:'', tax_type:'other', deadline_date:'', remind_date:'', notes:'' })
       await load()
