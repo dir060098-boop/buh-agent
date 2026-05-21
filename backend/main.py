@@ -24,6 +24,7 @@ app.include_router(bank.router,           prefix="/api/bank",           tags=["b
 app.include_router(salary.router,         prefix="/api/salary",         tags=["salary"])
 
 # Миграция полей Deadline (добавлены в обновлении)
+print("[MIGRATION] Запускаем миграцию таблицы deadlines...")
 try:
     with engine.connect() as conn:
         for col, defn in [
@@ -32,15 +33,22 @@ try:
             ("done_at",        "DATETIME"),
             ("done_by",        "VARCHAR"),
             ("notes",          "VARCHAR"),
-            ("auto_generated", "BOOLEAN DEFAULT 0"),
+            ("auto_generated", "BOOLEAN DEFAULT FALSE"),
+            ("is_done",        "BOOLEAN DEFAULT FALSE"),
         ]:
             try:
                 conn.execute(text(f"ALTER TABLE deadlines ADD COLUMN {col} {defn}"))
                 conn.commit()
-            except Exception:
-                pass
-except Exception:
-    pass
+                print(f"[MIGRATION] deadlines.{col} добавлен")
+            except Exception as e:
+                # Колонка уже существует — это нормально
+                if "already exists" in str(e).lower() or "duplicate" in str(e).lower():
+                    print(f"[MIGRATION] deadlines.{col} уже существует")
+                else:
+                    print(f"[MIGRATION] deadlines.{col} ошибка: {e}")
+    print("[MIGRATION] Миграция deadlines завершена")
+except Exception as e:
+    print(f"[MIGRATION] Критическая ошибка миграции: {e}")
 
 app.include_router(deadlines.router,      prefix="/api/deadlines",      tags=["deadlines"])
 app.include_router(communications.router, prefix="/api/communications", tags=["communications"])

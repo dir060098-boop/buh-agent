@@ -104,6 +104,7 @@ def dashboard_summary(db: Session = Depends(get_db), user=Depends(get_current_us
     soon = today + timedelta(days=7)
 
     for c in companies:
+      try:
         # Счётчики документов
         doc_count = db.query(models.Document).filter(
             models.Document.company_id == c.id
@@ -214,6 +215,17 @@ def dashboard_summary(db: Session = Depends(get_db), user=Depends(get_current_us
             "status": status,
             "status_text": status_text,
             "can_delete": doc_count == 0 and journal_count == 0,
+        })
+      except Exception as ex:
+        import traceback; traceback.print_exc()
+        # При любой ошибке добавляем компанию с минимальными данными
+        companies_out.append({
+            "id": c.id, "name": c.name, "inn": c.inn,
+            "tax_regime": c.tax_regime, "doc_count": 0,
+            "pending_docs": 0, "needs_review": 0, "journal_count": 0,
+            "overdue_deadlines": 0, "upcoming_deadlines": 0,
+            "status": "ok", "status_text": "Всё в порядке",
+            "can_delete": True,
         })
 
     # Сортируем ленту: сначала error, потом warn, потом info
