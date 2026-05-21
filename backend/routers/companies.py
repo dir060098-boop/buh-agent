@@ -327,6 +327,13 @@ def delete_company(company_id: int, db: Session = Depends(get_db), user=Depends(
             detail=f"Нельзя удалить компанию: есть {doc_count} документов и {journal_count} проводок. Сначала удалите данные."
         )
 
+    # Удаляем связанные дедлайны перед удалением компании
+    try:
+        db.query(models.Deadline).filter(
+            models.Deadline.company_id == company_id
+        ).delete()
+    except Exception:
+        pass
     db.delete(c)
     db.commit()
     return {"ok": True}

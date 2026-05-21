@@ -237,7 +237,7 @@ def list_deadlines(
     return result
 
 
-@router.post("/{company_id}/generate")
+@router.post("/generate/{company_id}")
 def generate_deadlines(
     company_id: int,
     db: Session = Depends(get_db),
@@ -331,7 +331,7 @@ def delete_deadline(
     return {"ok": True}
 
 
-@router.get("/{company_id}/summary/active")
+@router.get("/active/{company_id}")
 def active_deadlines_summary(
     company_id: int,
     db: Session = Depends(get_db),

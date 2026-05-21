@@ -69,7 +69,7 @@ export default function Deadlines() {
   async function handleGenerate() {
     setGenerating(true)
     try {
-      await api.post(`/api/deadlines/${companyId}/generate`)
+      await api.post(`/api/deadlines/generate/${companyId}`)
       await load()
     } catch(e) { alert(e.response?.data?.detail || e.message) }
     finally { setGenerating(false) }
