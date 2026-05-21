@@ -213,6 +213,32 @@ class DeadlineDone(BaseModel):
 
 # ── ЭНДПОИНТЫ ─────────────────────────────────────────────
 
+
+@router.post("/migrate")
+def migrate_deadlines_table(db: Session = Depends(get_db)):
+    """Принудительная миграция таблицы deadlines — добавляет новые колонки."""
+    from sqlalchemy import text
+    results = []
+    cols = [
+        ("period",         "VARCHAR"),
+        ("remind_date",    "TIMESTAMP"),
+        ("done_at",        "TIMESTAMP"),
+        ("done_by",        "VARCHAR"),
+        ("notes",          "VARCHAR"),
+        ("auto_generated", "BOOLEAN DEFAULT FALSE"),
+        ("is_done",        "BOOLEAN DEFAULT FALSE"),
+    ]
+    for col, defn in cols:
+        try:
+            db.execute(text(f"ALTER TABLE deadlines ADD COLUMN IF NOT EXISTS {col} {defn}"))
+            db.commit()
+            results.append(f"OK: {col}")
+        except Exception as e:
+            db.rollback()
+            results.append(f"ERR {col}: {str(e)[:60]}")
+    return {"results": results}
+
+
 @router.post("/generate/{company_id}")
 def generate_deadlines(
     company_id: int,
