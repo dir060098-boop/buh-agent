@@ -91,7 +91,7 @@ export default function Scanner() {
       setRecognized(r)
       setState('preview')
       // Загружаем план счетов для редактирования
-      posting.chartOfAccounts(companyId).then(res => setAccounts(res.data)).catch(() => {})
+      posting.chartOfAccounts().then(res => setAccounts(res.data)).catch(() => {})
       // Запрашиваем предварительную разноску
       setPostingLoading(true)
       scanner.previewPosting(companyId, {
