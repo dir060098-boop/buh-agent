@@ -1,12 +1,9 @@
-# Nixpacks конфигурация для бэкенда БухАгент
-# Tesseract OCR устанавливается через apt (надёжнее чем Nix для данного пакета)
-
 [phases.setup]
+nixPkgs = ["python312", "python312Packages.pip"]
 aptPkgs = [
   "tesseract-ocr",
   "tesseract-ocr-rus",
   "tesseract-ocr-kir",
-  "libtesseract-dev",
 ]
 
 [phases.install]
