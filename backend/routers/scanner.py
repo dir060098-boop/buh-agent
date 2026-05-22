@@ -19,7 +19,7 @@ import sqlalchemy as sa
 
 router = APIRouter()
 
-UPLOAD_DIR = "uploads"
+UPLOAD_DIR = os.getenv("UPLOAD_DIR", "/app/uploads")
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 SUPPORTED_IMAGES = {"image/jpeg","image/jpg","image/png","image/webp","image/heic","image/heif"}
@@ -235,11 +235,8 @@ async def preview_posting(
     """
     Предварительная разноска для предпросмотра в сканере.
     НЕ сохраняет ничего в БД — только возвращает предложенные счета.
+    Использует правила из таблицы posting_rules (без вызова Claude API).
     """
-    from routers.posting import get_chart_summary, get_posting_rules_summary
-    import anthropic as ant_module
-    import json as json_module
-
     company = db.query(models.Company).filter(
         models.Company.id == company_id,
         models.Company.owner_id == user.id
@@ -247,61 +244,75 @@ async def preview_posting(
     if not company:
         raise HTTPException(status_code=404, detail="Компания не найдена")
 
-    chart_summary = get_chart_summary(db)
-    rules_summary = get_posting_rules_summary(db)
+    doc_type      = (recognition.get("doc_type") or "other").lower()
+    operation_type = (recognition.get("operation_type") or "").lower()
+    summary       = (recognition.get("summary") or "").lower()
+    counterparty  = (recognition.get("counterparty") or "").lower()
+    search_text   = f"{operation_type} {summary} {counterparty}"
 
-    client = ant_module.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+    # Все активные правила по убыванию приоритета
+    rules = db.query(models.PostingRule).filter(
+        models.PostingRule.is_active == True
+    ).order_by(models.PostingRule.priority.desc()).all()
 
-    prompt = f"""Ты — бухгалтер КР (МСФО). Определи счета Дт и Кт для этого документа.
+    matched_rule = None
 
-Тип: {recognition.get("doc_type", "other")}
-Контрагент: {recognition.get("counterparty", "—")}
-Сумма: {recognition.get("amount", 0)} {recognition.get("currency", "KGS")}
-Тип операции: {recognition.get("operation_type", "—")}
-Описание: {recognition.get("summary", "—")}
+    # Проход 1: совпадение по doc_type + хотя бы одно ключевое слово
+    for rule in rules:
+        if rule.document_type == doc_type:
+            keywords = [kw.lower() for kw in (rule.operation_keywords or [])]
+            if not keywords or any(kw in search_text for kw in keywords):
+                matched_rule = rule
+                break
 
-ПЛАН СЧЕТОВ КР:
-{chart_summary}
+    # Проход 2: только doc_type (правило без ключевых слов или нет совпадений)
+    if not matched_rule:
+        for rule in rules:
+            if rule.document_type == doc_type:
+                matched_rule = rule
+                break
 
-ПРАВИЛА РАЗНОСКИ:
-{rules_summary}
+    # Проход 3: любой тип, ключевые слова совпадают
+    if not matched_rule:
+        for rule in rules:
+            keywords = [kw.lower() for kw in (rule.operation_keywords or [])]
+            if keywords and any(kw in search_text for kw in keywords):
+                matched_rule = rule
+                break
 
-Верни ТОЛЬКО JSON:
-{{
-  "debit_account": "XXXX",
-  "debit_account_name": "название",
-  "credit_account": "XXXX",
-  "credit_account_name": "название",
-  "description": "краткое содержание операции",
-  "confidence": 0-100,
-  "reasoning": "обоснование"
-}}"""
+    # Вспомогательная функция: название счёта из chart_of_accounts
+    def account_name(code: str) -> str:
+        acc = db.query(models.ChartOfAccount).filter(
+            models.ChartOfAccount.code == code
+        ).first()
+        return acc.name if acc else code
 
-    try:
-        response = client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=600,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        raw = response.content[0].text.strip()
-        backtick = "```"
-        if backtick in raw:
-            parts = raw.split(backtick)
-            result = {}
-            for part in parts:
-                part = part.strip()
-                if part.startswith("json"): part = part[4:].strip()
-                try: result = json_module.loads(part); break
-                except: continue
-        else:
-            result = json_module.loads(raw)
-        return result
-    except Exception as e:
+    # Fallback если ни одно правило не подошло
+    if not matched_rule:
         return {
-            "debit_account": "7590", "debit_account_name": "Прочие расходы",
-            "credit_account": "3210", "credit_account_name": "Счета к оплате",
-            "description": "", "confidence": 0, "reasoning": str(e)
+            "debit_account":       "8490",
+            "debit_account_name":  account_name("8490") or "Прочие расходы",
+            "credit_account":      "3110",
+            "credit_account_name": account_name("3110") or "Счета к оплате",
+            "description":         recognition.get("summary") or f"Документ от {counterparty}",
+            "confidence":          30,
+            "reasoning":           "Подходящее правило не найдено — применён fallback"
         }
+
+    amount   = recognition.get("amount", 0)
+    currency = recognition.get("currency", "KGS")
+    desc     = (recognition.get("summary")
+                or f"{matched_rule.rule_name} — {counterparty} {amount} {currency}")
+
+    return {
+        "debit_account":       matched_rule.debit_account,
+        "debit_account_name":  account_name(matched_rule.debit_account),
+        "credit_account":      matched_rule.credit_account,
+        "credit_account_name": account_name(matched_rule.credit_account),
+        "description":         desc,
+        "confidence":          85,
+        "reasoning":           f"Правило: «{matched_rule.rule_name}»"
+    }
 
 @router.post("/{company_id}/recognize")
 async def recognize_document(
