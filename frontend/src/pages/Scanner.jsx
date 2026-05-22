@@ -231,43 +231,29 @@ export default function Scanner() {
 
         {/* ── PREVIEW ── */}
         {(state === 'preview' || state === 'saving') && recognized && (
-          <div style={{display:'grid', gridTemplateColumns: fileUrl ? '1fr 1fr' : '1fr', gap:20, alignItems:'start'}}>
+          <div style={{display:'grid', gridTemplateColumns: (fileUrl && sourceType !== 'pdf') ? '1fr 1fr' : '1fr', gap:20, alignItems:'start'}}>
 
-            {/* Левая колонка — оригинал */}
-            {fileUrl && (
+            {/* Левая колонка — только для изображений */}
+            {fileUrl && sourceType !== 'pdf' && (
               <div style={{position:'sticky', top:20}}>
                 <div style={{fontSize:11, fontWeight:700, color:'var(--text3)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:8}}>📄 Оригинал документа</div>
-                {sourceType === 'pdf' ? (
-                  <div style={{background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius)', overflow:'hidden', boxShadow:'var(--shadow-sm)'}}>
-                    <object data={fileUrl} type="application/pdf"
-                      style={{width:'100%', height:580, display:'block'}}>
-                      <div style={{padding:20, textAlign:'center', color:'var(--text3)', fontSize:13}}>
-                        PDF не отображается в браузере.{' '}
-                        <a href={fileUrl} target="_blank" rel="noreferrer" style={{color:'var(--accent)', fontWeight:700}}>
-                          Открыть в новой вкладке →
-                        </a>
-                      </div>
-                    </object>
-                    <div style={{padding:'8px 12px', borderTop:'1px solid var(--border)', textAlign:'center'}}>
-                      <a href={fileUrl} target="_blank" rel="noreferrer"
-                        style={{fontSize:12, color:'var(--accent)', fontWeight:600, textDecoration:'none'}}>
-                        🔗 Открыть PDF в новой вкладке
-                      </a>
-                    </div>
-                  </div>
-                ) : (
-                  <img src={fileUrl || preview} alt="document"
-                    style={{width:'100%', borderRadius:'var(--radius)', border:'1px solid var(--border)', boxShadow:'var(--shadow-sm)'}}/>
-                )}
+                <img src={fileUrl || preview} alt="document"
+                  style={{width:'100%', borderRadius:'var(--radius)', border:'1px solid var(--border)', boxShadow:'var(--shadow-sm)'}}/>
               </div>
             )}
 
             {/* Правая колонка — форма */}
             <div>
-              {/* Имя файла */}
+              {/* Имя файла + кнопка просмотра PDF */}
               {fileName && (
-                <div style={{fontSize:11, color:'var(--text3)', marginBottom:8, padding:'6px 10px', background:'var(--surface2)', borderRadius:'var(--radius-sm)', border:'1px solid var(--border)'}}>
-                  📎 {fileName}
+                <div style={{fontSize:11, color:'var(--text3)', marginBottom:8, padding:'6px 10px', background:'var(--surface2)', borderRadius:'var(--radius-sm)', border:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between', gap:8}}>
+                  <span>📎 {fileName}</span>
+                  {fileUrl && sourceType === 'pdf' && (
+                    <a href={fileUrl} target="_blank" rel="noreferrer"
+                      style={{fontSize:11, color:'var(--accent)', fontWeight:700, textDecoration:'none', whiteSpace:'nowrap', flexShrink:0}}>
+                      Открыть →
+                    </a>
+                  )}
                 </div>
               )}
 
