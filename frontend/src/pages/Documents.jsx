@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { documents, companies } from '../api/client'
+import ConfirmModal from '../components/ConfirmModal'
 
 const DOC_TYPES = [
   ['', 'Все типы'],
@@ -59,6 +60,7 @@ export default function Documents() {
   const [loading, setLoading] = useState(true)
   const [selected, setSelected] = useState(null)
   const [deleting, setDeleting] = useState(null)
+  const [confirmState, setConfirmState] = useState(null)
 
   const [search, setSearch] = useState('')
   const [docType, setDocType] = useState('')
@@ -87,11 +89,18 @@ export default function Documents() {
   useEffect(() => { load() }, [load])
 
   function handleDelete(doc) {
-    if (!window.confirm(`Удалить документ "${doc.counterparty || '—'}" на ${fmt(doc.amount, doc.currency)}?`)) return
-    setDeleting(doc.id)
-    documents.delete(doc.id)
-      .then(() => { setDocs(d => d.filter(x => x.id !== doc.id)); setSelected(null) })
-      .finally(() => setDeleting(null))
+    setConfirmState({
+      title: 'Удалить документ?',
+      message: `«${doc.counterparty || '—'}» на ${fmt(doc.amount, doc.currency)} будет удалён без возможности восстановления.`,
+      confirmLabel: 'Удалить',
+      danger: true,
+      onConfirm: () => {
+        setDeleting(doc.id)
+        documents.delete(doc.id)
+          .then(() => { setDocs(d => d.filter(x => x.id !== doc.id)); setSelected(null) })
+          .finally(() => setDeleting(null))
+      }
+    })
   }
 
   const total   = docs.length
@@ -223,6 +232,9 @@ export default function Documents() {
           </div>
         )}
       </div>
+
+      {/* Модал подтверждения удаления */}
+      <ConfirmModal state={confirmState} onClose={() => setConfirmState(null)} />
 
       {/* Модал детали */}
       {selected && (

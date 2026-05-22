@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { bank, companies } from '../api/client'
+import ConfirmModal from '../components/ConfirmModal'
 
 function fmt(n, cur = 'KGS') {
   if (n == null) return '—'
@@ -39,6 +40,7 @@ export default function Bank() {
   const [txForm, setTxForm]         = useState(EMPTY_TX)
   const [accForm, setAccForm]       = useState(EMPTY_ACC)
   const [saving, setSaving]         = useState(false)
+  const [confirmState, setConfirmState] = useState(null)
 
   useEffect(() => {
     companies.get(companyId).then(r => setCompany(r.data)).catch(() => {})
@@ -76,11 +78,18 @@ export default function Bank() {
     } finally { setSaving(false) }
   }
 
-  async function handleDeleteAccount(id) {
-    if (!window.confirm('Удалить счёт со всеми операциями?')) return
-    await bank.deleteAccount(id)
-    if (activeAcc === id) setActiveAcc(null)
-    load()
+  function handleDeleteAccount(id, accName) {
+    setConfirmState({
+      title: 'Удалить счёт?',
+      message: `«${accName}» и все его операции будут удалены без возможности восстановления.`,
+      confirmLabel: 'Удалить',
+      danger: true,
+      onConfirm: async () => {
+        await bank.deleteAccount(id)
+        if (activeAcc === id) setActiveAcc(null)
+        load()
+      }
+    })
   }
 
   // ── Добавить операцию ──────────────────────────────────────────────────
@@ -98,10 +107,17 @@ export default function Bank() {
     } finally { setSaving(false) }
   }
 
-  async function handleDeleteTx(id) {
-    if (!window.confirm('Удалить операцию?')) return
-    await bank.deleteTransaction(id)
-    load()
+  function handleDeleteTx(id, amount, currency) {
+    setConfirmState({
+      title: 'Удалить операцию?',
+      message: `Операция на ${fmt(amount, currency)} будет удалена без возможности восстановления.`,
+      confirmLabel: 'Удалить',
+      danger: true,
+      onConfirm: async () => {
+        await bank.deleteTransaction(id)
+        load()
+      }
+    })
   }
 
   const { accounts, transactions, summary } = data
@@ -160,7 +176,7 @@ export default function Bank() {
             {accounts.map(acc => (
               <div key={acc.id} onClick={() => setActiveAcc(acc.id === activeAcc ? null : acc.id)}
                 style={{ background: activeAcc === acc.id ? 'var(--accent-light)' : 'var(--surface)', border: `2px solid ${activeAcc === acc.id ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 'var(--radius)', padding: '14px 18px', cursor: 'pointer', minWidth: 160, position: 'relative' }}>
-                <button onClick={e => { e.stopPropagation(); handleDeleteAccount(acc.id) }}
+                <button onClick={e => { e.stopPropagation(); handleDeleteAccount(acc.id, acc.bank_name || (acc.is_cash ? 'Касса' : 'Счёт')) }}
                   style={{ position: 'absolute', top: 8, right: 8, background: 'none', border: 'none', color: 'var(--text4)', fontSize: 14, cursor: 'pointer', padding: 2 }}>×</button>
                 <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', marginBottom: 2 }}>
                   {acc.is_cash ? '💵 КАССА' : '🏦 ' + (acc.bank_name || 'БАНК')}
@@ -276,7 +292,7 @@ export default function Bank() {
                         📒
                       </button>
                     )}
-                    <button onClick={() => handleDeleteTx(tx.id)}
+                    <button onClick={() => handleDeleteTx(tx.id, tx.amount, tx.currency)}
                       style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '3px 6px', fontSize: 11, cursor: 'pointer', color: 'var(--error)' }}>
                       ✕
                     </button>
@@ -420,6 +436,9 @@ export default function Bank() {
           </div>
         </div>
       )}
+
+      {/* Модал подтверждения */}
+      <ConfirmModal state={confirmState} onClose={() => setConfirmState(null)} />
     </div>
   )
 }
