@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { scanner, posting } from '../api/client'
 
@@ -46,6 +46,11 @@ export default function Scanner() {
   const [accountSearch, setAccountSearch] = useState('')
   const [accounts, setAccounts] = useState([])
 
+  // Загружаем план счетов при открытии страницы, не ждём распознавания
+  useEffect(() => {
+    posting.chartOfAccounts().then(res => setAccounts(res.data)).catch(() => {})
+  }, [])
+
   function handleFile(file) {
     if (!file) return
     setFileName(file.name)
@@ -90,8 +95,6 @@ export default function Scanner() {
       })
       setRecognized(r)
       setState('preview')
-      // Загружаем план счетов для редактирования
-      posting.chartOfAccounts().then(res => setAccounts(res.data)).catch(() => {})
       // Запрашиваем предварительную разноску
       setPostingLoading(true)
       scanner.previewPosting(companyId, {
