@@ -67,10 +67,10 @@ export const posting = {
 }
 
 export const documents = {
-  getById: (id)        => api.get(`/api/documents/doc/${id}`),
-  list: (companyId)    => api.get(`/api/documents/${companyId}`),
-  approve: (id)        => api.patch(`/api/documents/${id}/approve`),
-  delete: (id)         => api.delete(`/api/documents/${id}`),
+  getById: (id)              => api.get(`/api/documents/doc/${id}`),
+  list: (companyId, params)  => api.get(`/api/documents/${companyId}`, { params }),
+  approve: (id)              => api.patch(`/api/documents/${id}/approve`),
+  delete: (id)               => api.delete(`/api/documents/${id}`),
 }
 
 export const esf = {
