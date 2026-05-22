@@ -81,10 +81,13 @@ export const esf = {
 }
 
 export const bank = {
-  accounts: (companyId) => api.get(`/api/bank/${companyId}/accounts`),
-  transactions: (companyId) => api.get(`/api/bank/${companyId}/transactions`),
-  unmatched: (companyId) => api.get(`/api/bank/${companyId}/unmatched`),
-  aiMatch: (companyId) => api.post(`/api/bank/${companyId}/ai-match`),
+  accounts:       (companyId)         => api.get(`/api/bank/${companyId}/accounts`),
+  createAccount:  (companyId, data)   => api.post(`/api/bank/${companyId}/accounts`, data),
+  deleteAccount:  (accountId)         => api.delete(`/api/bank/accounts/${accountId}`),
+  transactions:   (companyId, params) => api.get(`/api/bank/${companyId}/transactions`, { params }),
+  addTransaction: (companyId, data)   => api.post(`/api/bank/${companyId}/transactions`, data),
+  deleteTransaction: (txId)           => api.delete(`/api/bank/transactions/${txId}`),
+  matchTransaction:  (txId, docId)    => api.patch(`/api/bank/transactions/${txId}/match`, null, { params: { doc_id: docId } }),
 }
 
 export const salary = {

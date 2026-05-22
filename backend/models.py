@@ -92,8 +92,10 @@ class BankAccount(Base):
     bank_name = Column(String)
     account_number = Column(String)
     currency = Column(String, default="KGS")
+    opening_balance = Column(Float, default=0.0)  # начальный остаток
+    is_cash = Column(Boolean, default=False)       # касса (True) или банк (False)
     company = relationship("Company", back_populates="bank_accounts")
-    transactions = relationship("BankTransaction", back_populates="account")
+    transactions = relationship("BankTransaction", back_populates="account", cascade="all, delete-orphan")
 
 class BankTransaction(Base):
     __tablename__ = "bank_transactions"
@@ -101,12 +103,14 @@ class BankTransaction(Base):
     account_id = Column(Integer, ForeignKey("bank_accounts.id"))
     date = Column(DateTime)
     amount = Column(Float)
-    direction = Column(String)
+    currency = Column(String, default="KGS")
+    direction = Column(String)   # in / out
     counterparty = Column(String)
     purpose = Column(String)
     linked_document_id = Column(Integer, ForeignKey("documents.id"), nullable=True)
-    linked_esf_id = Column(Integer, ForeignKey("esf.id"), nullable=True)
-    status = Column(String, default="unmatched")
+    status = Column(String, default="unmatched")   # unmatched / matched
+    journal_entry_id = Column(Integer, ForeignKey("journal_entries.id"), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
     account = relationship("BankAccount", back_populates="transactions")
 
 class Employee(Base):

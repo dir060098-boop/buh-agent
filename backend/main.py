@@ -95,6 +95,13 @@ def _run_migrations():
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS currency VARCHAR(3)",
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS vat_amount FLOAT",
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS ai_raw_json JSONB",
+        # bank_accounts
+        "ALTER TABLE bank_accounts ADD COLUMN IF NOT EXISTS opening_balance FLOAT DEFAULT 0",
+        "ALTER TABLE bank_accounts ADD COLUMN IF NOT EXISTS is_cash BOOLEAN DEFAULT FALSE",
+        # bank_transactions
+        "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'KGS'",
+        "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS journal_entry_id INTEGER",
+        "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()",
     ]
     try:
         with engine.connect() as conn:
