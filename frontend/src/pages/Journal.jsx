@@ -402,7 +402,6 @@ export default function Journal(){
                         {/* ── КОНТЕКСТНЫЕ ДЕЙСТВИЯ ── */}
                         <div style={{padding:'10px 14px 14px',borderTop:'1px solid var(--border)',display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
                           <div style={{fontSize:11,fontWeight:700,color:'var(--text3)',textTransform:'uppercase',letterSpacing:'0.06em',marginRight:4}}>Действия:</div>
-                          {e.document_id&&<CtxBtn icon="📄" label="Оригинал документа" onClick={ev=>{ev.stopPropagation();setDocViewEntry(e)}}/>}
                           {e.counterparty&&<CtxBtn icon="📋" label="Копировать контрагента" onClick={ev=>{ev.stopPropagation();copyToClipboard(e.counterparty,'Контрагент скопирован')}}/>}
                           {e.counterparty_inn&&<CtxBtn icon="🔢" label="Копировать ИНН" onClick={ev=>{ev.stopPropagation();copyToClipboard(e.counterparty_inn,'ИНН скопирован')}}/>}
                           <CtxBtn icon="🏦" label="Найти в банке" muted onClick={ev=>{ev.stopPropagation();alert('Раздел «Банк и касса» будет в следующем обновлении')}}/>
