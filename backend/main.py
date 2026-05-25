@@ -114,6 +114,21 @@ def _run_migrations():
         "ALTER TABLE payroll_run_entries ADD COLUMN IF NOT EXISTS bonus FLOAT DEFAULT 0",
         "ALTER TABLE payroll_run_entries ADD COLUMN IF NOT EXISTS deduction FLOAT DEFAULT 0",
         "ALTER TABLE payroll_run_entries ADD COLUMN IF NOT EXISTS taxable FLOAT",
+        # employee_leaves
+        """CREATE TABLE IF NOT EXISTS employee_leaves (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER REFERENCES companies(id),
+            employee_id INTEGER REFERENCES employees(id),
+            leave_type VARCHAR(20) NOT NULL,
+            start_date DATE NOT NULL,
+            end_date DATE NOT NULL,
+            days INTEGER NOT NULL,
+            daily_rate FLOAT,
+            pay_amount FLOAT,
+            notes VARCHAR(500),
+            journal_entry_id INTEGER,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        )""",
         # payroll_runs
         """CREATE TABLE IF NOT EXISTS payroll_runs (
             id SERIAL PRIMARY KEY,

@@ -174,6 +174,22 @@ class PayrollRunEntry(Base):
     net           = Column(Float)              # к выдаче = taxable - налоги - удержания
     run           = relationship("PayrollRun", back_populates="entries")
 
+class EmployeeLeave(Base):
+    """Отпуск или больничный сотрудника."""
+    __tablename__ = "employee_leaves"
+    id            = Column(Integer, primary_key=True)
+    company_id    = Column(Integer, ForeignKey("companies.id"))
+    employee_id   = Column(Integer, ForeignKey("employees.id"))
+    leave_type    = Column(String, nullable=False)   # vacation | sick
+    start_date    = Column(Date, nullable=False)
+    end_date      = Column(Date, nullable=False)
+    days          = Column(Integer, nullable=False)
+    daily_rate    = Column(Float)                    # среднедневной заработок
+    pay_amount    = Column(Float)                    # сумма начисления (работодатель)
+    notes         = Column(String)
+    journal_entry_id = Column(Integer, ForeignKey("journal_entries.id"), nullable=True)
+    created_at    = Column(DateTime(timezone=True), server_default=func.now())
+
 class Deadline(Base):
     __tablename__ = "deadlines"
     id             = Column(Integer, primary_key=True)

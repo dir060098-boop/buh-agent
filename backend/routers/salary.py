@@ -13,13 +13,18 @@
 """
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime, date
+import io
 from database import get_db
 from routers.auth import get_current_user
 import models
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill
+from openpyxl.utils import get_column_letter
 
 router = APIRouter()
 
@@ -61,6 +66,13 @@ class AdjustmentItem(BaseModel):
     employee_id: int
     bonus:       float = 0.0   # премия — облагается налогом
     deduction:   float = 0.0   # удержание — не влияет на налог (аванс, штраф и т.д.)
+
+class LeaveCreate(BaseModel):
+    employee_id: int
+    leave_type:  str            # vacation | sick
+    start_date:  str            # YYYY-MM-DD
+    end_date:    str            # YYYY-MM-DD
+    notes:       Optional[str] = None
 
 class RunPayrollRequest(BaseModel):
     year:        int
@@ -540,3 +552,244 @@ def pay_taxes(company_id: int, run_id: int, data: PayRequest,
     db.commit()
     db.refresh(run)
     return _run_detail(run)
+
+
+# ── Отпуска и больничные ───────────────────────────────────────────────────
+def _leave_dict(leave: models.EmployeeLeave, emp_name: str = "") -> dict:
+    return {
+        "id":            leave.id,
+        "employee_id":   leave.employee_id,
+        "employee_name": emp_name,
+        "leave_type":    leave.leave_type,
+        "start_date":    leave.start_date.isoformat() if leave.start_date else None,
+        "end_date":      leave.end_date.isoformat()   if leave.end_date   else None,
+        "days":          leave.days,
+        "daily_rate":    leave.daily_rate,
+        "pay_amount":    leave.pay_amount,
+        "notes":         leave.notes,
+        "created_at":    leave.created_at.isoformat() if leave.created_at else None,
+    }
+
+
+@router.get("/{company_id}/leaves")
+def list_leaves(company_id: int,
+                db:   Session = Depends(get_db),
+                user  = Depends(get_current_user)):
+    leaves = db.query(models.EmployeeLeave).filter(
+        models.EmployeeLeave.company_id == company_id
+    ).order_by(models.EmployeeLeave.start_date.desc()).all()
+
+    emp_ids = list({l.employee_id for l in leaves})
+    emp_map: dict = {}
+    if emp_ids:
+        emps    = db.query(models.Employee).filter(models.Employee.id.in_(emp_ids)).all()
+        emp_map = {e.id: e.full_name for e in emps}
+
+    return [_leave_dict(l, emp_map.get(l.employee_id, "")) for l in leaves]
+
+
+@router.post("/{company_id}/leaves")
+def create_leave(company_id: int, data: LeaveCreate,
+                 db:   Session = Depends(get_db),
+                 user  = Depends(get_current_user)):
+    emp = db.query(models.Employee).filter(
+        models.Employee.id         == data.employee_id,
+        models.Employee.company_id == company_id,
+    ).first()
+    if not emp:
+        raise HTTPException(404, "Сотрудник не найден")
+
+    start = date.fromisoformat(data.start_date)
+    end   = date.fromisoformat(data.end_date)
+    if end < start:
+        raise HTTPException(400, "Дата окончания раньше даты начала")
+
+    days       = (end - start).days + 1
+    daily_rate = round(emp.salary / 25, 2)
+
+    if data.leave_type == "vacation":
+        pay_amount = round(daily_rate * days, 2)
+        desc = f"Отпускные: {emp.full_name}, {days} дн. ({start} – {end})"
+    elif data.leave_type == "sick":
+        employer_days = min(3, days)
+        foms_days     = max(0, days - 3)
+        pay_amount    = round(daily_rate * employer_days, 2)
+        foms_note     = f", дни 4–{days} ({foms_days} дн.) — ФОМС" if foms_days else ""
+        desc = (f"Больничный: {emp.full_name}, {days} дн. "
+                f"(работодатель за {employer_days} дн.{foms_note})")
+    else:
+        pay_amount = round(daily_rate * days, 2)
+        desc = f"Начисление: {emp.full_name}, {days} дн."
+
+    leave = models.EmployeeLeave(
+        company_id  = company_id,
+        employee_id = emp.id,
+        leave_type  = data.leave_type,
+        start_date  = start,
+        end_date    = end,
+        days        = days,
+        daily_rate  = daily_rate,
+        pay_amount  = pay_amount,
+        notes       = data.notes,
+    )
+    db.add(leave)
+    db.flush()
+
+    if pay_amount > 0:
+        je = models.JournalEntry(
+            company_id          = company_id,
+            document_id         = None,
+            entry_date          = start,
+            debit_account       = "8010",
+            credit_account      = "3520",
+            debit_account_name  = _acc_name("8010", db),
+            credit_account_name = _acc_name("3520", db),
+            amount              = pay_amount,
+            currency            = "KGS",
+            description         = desc,
+            status              = "posted",
+            ai_confidence       = 100,
+            ai_reasoning        = "Авто-проводка: отпуск/больничный",
+        )
+        db.add(je)
+        db.flush()
+        leave.journal_entry_id = je.id
+
+    db.commit()
+    db.refresh(leave)
+    return _leave_dict(leave, emp.full_name)
+
+
+@router.delete("/{company_id}/leaves/{leave_id}")
+def delete_leave(company_id: int, leave_id: int,
+                 db:   Session = Depends(get_db),
+                 user  = Depends(get_current_user)):
+    leave = db.query(models.EmployeeLeave).filter(
+        models.EmployeeLeave.id         == leave_id,
+        models.EmployeeLeave.company_id == company_id,
+    ).first()
+    if not leave:
+        raise HTTPException(404, "Запись не найдена")
+    db.delete(leave)
+    db.commit()
+    return {"ok": True}
+
+
+# ── Excel-выгрузка расчётной ведомости ─────────────────────────────────────
+@router.get("/{company_id}/payroll/run/{run_id}/export")
+def export_run_excel(company_id: int, run_id: int,
+                     db:   Session = Depends(get_db),
+                     user  = Depends(get_current_user)):
+    run = db.query(models.PayrollRun).filter(
+        models.PayrollRun.id         == run_id,
+        models.PayrollRun.company_id == company_id,
+    ).first()
+    if not run:
+        raise HTTPException(404, "Расчёт не найден")
+
+    company = db.query(models.Company).filter(models.Company.id == company_id).first()
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = f"{MONTH_RU[run.month]} {run.year}"
+
+    # ── Заголовок ──────────────────────────────────────────────────────────
+    ws.merge_cells("A1:I1")
+    ws["A1"] = (f"РАСЧЁТНАЯ ВЕДОМОСТЬ ЗА "
+                f"{MONTH_RU[run.month].upper()} {run.year} ГОДА")
+    ws["A1"].font      = Font(bold=True, size=13)
+    ws["A1"].alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 22
+
+    if company:
+        ws.merge_cells("A2:I2")
+        ws["A2"]           = company.name
+        ws["A2"].font      = Font(size=11, italic=True)
+        ws["A2"].alignment = Alignment(horizontal="center")
+
+    # ── Шапка таблицы ──────────────────────────────────────────────────────
+    HEADERS = [
+        ("№",              5),
+        ("ФИО",           30),
+        ("Должность",     20),
+        ("Оклад",         13),
+        ("Премия",        12),
+        ("Удержание",     12),
+        ("Подох. налог",  14),
+        ("СФ (работник)", 14),
+        ("К выдаче",      14),
+    ]
+    fill_hdr = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
+    for col, (hdr, width) in enumerate(HEADERS, 1):
+        cell = ws.cell(row=4, column=col, value=hdr)
+        cell.font      = Font(bold=True, size=10)
+        cell.alignment = Alignment(horizontal="center", vertical="center",
+                                   wrap_text=True)
+        cell.fill      = fill_hdr
+        ws.column_dimensions[get_column_letter(col)].width = width
+    ws.row_dimensions[4].height = 28
+
+    # ── Строки ─────────────────────────────────────────────────────────────
+    NUM_FMT = "#,##0.00"
+    for idx, e in enumerate(run.entries, 1):
+        r      = 4 + idx
+        values = [idx, e.employee_name, e.position or "",
+                  e.gross, e.bonus or 0, e.deduction or 0,
+                  e.income_tax, e.sf_employee, e.net]
+        for col, val in enumerate(values, 1):
+            cell = ws.cell(row=r, column=col, value=val)
+            if col >= 4:
+                cell.number_format = NUM_FMT
+                cell.alignment     = Alignment(horizontal="right")
+            else:
+                cell.alignment = Alignment(
+                    horizontal="center" if col == 1 else "left"
+                )
+
+    # ── Итого ──────────────────────────────────────────────────────────────
+    tr = 4 + len(run.entries) + 1
+    ws.merge_cells(f"A{tr}:C{tr}")
+    ws[f"A{tr}"]      = "ИТОГО"
+    ws[f"A{tr}"].font = Font(bold=True)
+    fill_tot = PatternFill(start_color="E2EFDA", end_color="E2EFDA",
+                           fill_type="solid")
+    for col, val in zip(
+        [4, 5, 6, 7, 8, 9],
+        [run.gross_total, 0, 0,
+         run.income_tax_total, run.sf_employee_total, run.net_total],
+    ):
+        cell               = ws.cell(row=tr, column=col, value=val)
+        cell.font          = Font(bold=True)
+        cell.number_format = NUM_FMT
+        cell.alignment     = Alignment(horizontal="right")
+        cell.fill          = fill_tot
+
+    # ── Доп. строка: СФ работодателя ───────────────────────────────────────
+    if run.sf_employer_total:
+        note_row = tr + 1
+        ws.merge_cells(f"A{note_row}:I{note_row}")
+        ws[f"A{note_row}"] = (f"Социальный фонд работодателя (за счёт компании): "
+                              f"{run.sf_employer_total:,.2f} KGS")
+        ws[f"A{note_row}"].font      = Font(italic=True, size=9)
+        ws[f"A{note_row}"].alignment = Alignment(horizontal="right")
+
+    # ── Подписи ─────────────────────────────────────────────────────────────
+    sig = tr + 3
+    ws.cell(row=sig,     column=1,
+            value="Руководитель:  ________________________________")
+    ws.cell(row=sig + 1, column=1,
+            value="Бухгалтер:     ________________________________")
+
+    # ── Отдаём файл ─────────────────────────────────────────────────────────
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    filename = f"payroll_{run.year}_{run.month:02d}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type=(
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ),
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )

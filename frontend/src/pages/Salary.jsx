@@ -29,7 +29,8 @@ const LBL = {
   textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5,
 }
 
-const EMPTY_EMP = { full_name: '', inn: '', position: '', salary: '', hire_date: '', is_foreign: false }
+const EMPTY_EMP   = { full_name: '', inn: '', position: '', salary: '', hire_date: '', is_foreign: false }
+const EMPTY_LEAVE = { employee_id: '', leave_type: 'vacation', start_date: '', end_date: '', notes: '' }
 const today = new Date().toISOString().slice(0, 10)
 
 // ── Главный компонент ───────────────────────────────────────────────────────
@@ -71,6 +72,12 @@ export default function Salary() {
   // Расчётный листок
   const [slipEntry, setSlipEntry] = useState(null)
 
+  // Отпуска и больничные
+  const [leaves, setLeaves]               = useState([])
+  const [showLeaveForm, setShowLeaveForm] = useState(false)
+  const [leaveForm, setLeaveForm]         = useState(EMPTY_LEAVE)
+  const [savingLeave, setSavingLeave]     = useState(false)
+
   useEffect(() => {
     companies.get(companyId).then(r => setCompany(r.data)).catch(() => {})
   }, [companyId])
@@ -101,6 +108,14 @@ export default function Salary() {
       loadHistory()
     }
   }, [tab, loadPreview, loadHistory])
+
+  const loadLeaves = useCallback(() => {
+    salary.leaves(companyId).then(r => setLeaves(r.data)).catch(() => {})
+  }, [companyId])
+
+  useEffect(() => {
+    if (tab === 'leaves') loadLeaves()
+  }, [tab, loadLeaves])
 
   // ── Добавить сотрудника ─────────────────────────────────────────────────
   async function handleAddEmployee() {
@@ -257,6 +272,50 @@ export default function Salary() {
     })
   }
 
+  // ── Экспорт расчёта в Excel ───────────────────────────────────────────────
+  async function handleExportRun() {
+    try {
+      const res = await salary.exportRun(companyId, selectedRun.id)
+      const url = URL.createObjectURL(new Blob([res.data]))
+      const a   = document.createElement('a')
+      a.href     = url
+      a.download = `payroll_${selectedRun.year}_${String(selectedRun.month).padStart(2, '0')}.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch {
+      alert('Ошибка экспорта')
+    }
+  }
+
+  // ── Добавить отпуск/больничный ─────────────────────────────────────────────
+  async function handleAddLeave() {
+    if (!leaveForm.employee_id || !leaveForm.start_date || !leaveForm.end_date) return
+    setSavingLeave(true)
+    try {
+      await salary.addLeave(companyId, leaveForm)
+      setShowLeaveForm(false)
+      setLeaveForm(EMPTY_LEAVE)
+      loadLeaves()
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Ошибка')
+    } finally { setSavingLeave(false) }
+  }
+
+  function handleDeleteLeave(leave) {
+    setConfirmState({
+      title: 'Удалить запись?',
+      message: `Отпуск/больничный «${leave.employee_name}» (${leave.start_date} – ${leave.end_date}) будет удалён.`,
+      confirmLabel: 'Удалить',
+      danger: true,
+      onConfirm: async () => {
+        await salary.deleteLeave(companyId, leave.id)
+        loadLeaves()
+      }
+    })
+  }
+
   // ── Открыть детали расчёта ───────────────────────────────────────────────
   async function openRun(run) {
     const r = await salary.getRun(companyId, run.id)
@@ -285,7 +344,7 @@ export default function Salary() {
 
       {/* Табы */}
       <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '0 24px', display: 'flex', gap: 0 }}>
-        {[['employees', '👤 Сотрудники'], ['payroll', '💰 Расчёт зарплаты']].map(([key, label]) => (
+        {[['employees', '👤 Сотрудники'], ['payroll', '💰 Расчёт зарплаты'], ['leaves', '🌴 Отпуска/б-ные']].map(([key, label]) => (
           <button key={key} onClick={() => setTab(key)}
             style={{
               background: 'none', border: 'none', borderBottom: tab === key ? '2px solid var(--accent)' : '2px solid transparent',
@@ -558,6 +617,151 @@ export default function Salary() {
             </div>
           </div>
         )}
+        {/* ════════════════ ТАБ: ОТПУСКА/БОЛЬНИЧНЫЕ ════════════════ */}
+        {tab === 'leaves' && (
+          <div>
+            {/* Шапка */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--text)' }}>🌴 Отпуска и больничные</div>
+                <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 3 }}>
+                  Дни 1–3 больничного — работодатель · с 4-го дня — ФОМС · отпускные = оклад ÷ 25 × дни
+                </div>
+              </div>
+              <button onClick={() => setShowLeaveForm(v => !v)}
+                style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', padding: '9px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0 }}>
+                {showLeaveForm ? '✕ Закрыть' : '+ Добавить'}
+              </button>
+            </div>
+
+            {/* Форма добавления */}
+            {showLeaveForm && (
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '16px 20px', marginBottom: 16, boxShadow: 'var(--shadow-sm)' }}>
+                <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 12 }}>Новая запись</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                  <div>
+                    <label style={LBL}>Сотрудник *</label>
+                    <select value={leaveForm.employee_id}
+                      onChange={e => setLeaveForm(f => ({ ...f, employee_id: e.target.value }))}
+                      style={{ ...SEL, width: '100%' }}>
+                      <option value="">— выберите —</option>
+                      {employees.filter(e => e.is_active).map(e => (
+                        <option key={e.id} value={e.id}>{e.full_name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={LBL}>Тип *</label>
+                    <select value={leaveForm.leave_type}
+                      onChange={e => setLeaveForm(f => ({ ...f, leave_type: e.target.value }))}
+                      style={{ ...SEL, width: '100%' }}>
+                      <option value="vacation">🌴 Отпуск</option>
+                      <option value="sick">🤒 Больничный</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={LBL}>Дата начала *</label>
+                    <input type="date" value={leaveForm.start_date}
+                      onChange={e => setLeaveForm(f => ({ ...f, start_date: e.target.value }))}
+                      style={{ ...SEL, width: '100%', boxSizing: 'border-box' }} />
+                  </div>
+                  <div>
+                    <label style={LBL}>Дата окончания *</label>
+                    <input type="date" value={leaveForm.end_date}
+                      onChange={e => setLeaveForm(f => ({ ...f, end_date: e.target.value }))}
+                      style={{ ...SEL, width: '100%', boxSizing: 'border-box' }} />
+                  </div>
+                </div>
+                <div style={{ marginBottom: 12 }}>
+                  <label style={LBL}>Примечание</label>
+                  <input value={leaveForm.notes}
+                    onChange={e => setLeaveForm(f => ({ ...f, notes: e.target.value }))}
+                    placeholder="Необязательно"
+                    style={{ ...INP, width: '100%', boxSizing: 'border-box' }} />
+                </div>
+
+                {/* Предпросмотр расчёта */}
+                {(() => {
+                  if (!leaveForm.employee_id || !leaveForm.start_date || !leaveForm.end_date) return null
+                  const emp  = employees.find(e => String(e.id) === String(leaveForm.employee_id))
+                  const days = Math.max(0, Math.floor((new Date(leaveForm.end_date) - new Date(leaveForm.start_date)) / 86400000) + 1)
+                  if (!emp || days <= 0) return null
+                  const daily = Math.round(emp.salary / 25 * 100) / 100
+                  const eDays = leaveForm.leave_type === 'sick' ? Math.min(3, days) : days
+                  const pay   = Math.round(daily * eDays * 100) / 100
+                  const fDays = leaveForm.leave_type === 'sick' ? Math.max(0, days - 3) : 0
+                  return (
+                    <div style={{ background: 'var(--ai-light)', border: '1px solid var(--ai)', borderRadius: 'var(--radius-sm)', padding: '8px 12px', fontSize: 12, marginBottom: 12 }}>
+                      📊 <strong>{days} дн.</strong> · среднедн. {fmt(daily)} KGS ·{' '}
+                      {leaveForm.leave_type === 'vacation' ? 'отпускные' : `работодатель (${eDays} дн.)`} =&nbsp;
+                      <strong style={{ color: 'var(--success)' }}>{fmt(pay)} KGS</strong>
+                      {fDays > 0 && (
+                        <span style={{ color: 'var(--text3)' }}>
+                          {' '}· ФОМС ({fDays} дн.) = {fmt(Math.round(daily * fDays * 100) / 100)} KGS
+                        </span>
+                      )}
+                    </div>
+                  )
+                })()}
+
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={handleAddLeave}
+                    disabled={!leaveForm.employee_id || !leaveForm.start_date || !leaveForm.end_date || savingLeave}
+                    style={{ flex: 2, background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', padding: 10, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', opacity: !leaveForm.employee_id ? 0.5 : 1 }}>
+                    {savingLeave ? 'Сохранение...' : 'Сохранить и создать проводку'}
+                  </button>
+                  <button onClick={() => { setShowLeaveForm(false); setLeaveForm(EMPTY_LEAVE) }}
+                    style={{ flex: 1, background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: 10, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--text2)' }}>
+                    Отмена
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Таблица отпусков */}
+            {leaves.length === 0 ? (
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: 40, textAlign: 'center', color: 'var(--text3)', fontSize: 13 }}>
+                Записей об отпусках и больничных нет — нажмите «Добавить»
+              </div>
+            ) : (
+              <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 110px 70px 110px 160px 50px', padding: '8px 16px', background: 'var(--surface2)', borderBottom: '1px solid var(--border)', fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  <div>Сотрудник</div>
+                  <div style={{ textAlign: 'center' }}>Тип</div>
+                  <div style={{ textAlign: 'center' }}>Дней</div>
+                  <div style={{ textAlign: 'right' }}>Начислено (KGS)</div>
+                  <div style={{ textAlign: 'center' }}>Период</div>
+                  <div></div>
+                </div>
+                {leaves.map(l => (
+                  <div key={l.id} style={{ display: 'grid', gridTemplateColumns: '1fr 110px 70px 110px 160px 50px', padding: '10px 16px', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontWeight: 600, fontSize: 13 }}>{l.employee_name}</div>
+                      {l.notes && <div style={{ fontSize: 11, color: 'var(--text3)' }}>{l.notes}</div>}
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      {l.leave_type === 'vacation'
+                        ? <span style={{ background: '#e8f5e9', color: '#2e7d32', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20 }}>🌴 Отпуск</span>
+                        : <span style={{ background: '#fff8e1', color: '#b45309', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20 }}>🤒 Больничный</span>
+                      }
+                    </div>
+                    <div style={{ textAlign: 'center', fontWeight: 700, fontSize: 14 }}>{l.days}</div>
+                    <div style={{ textAlign: 'right', fontWeight: 700, fontSize: 13, color: 'var(--success)' }}>{fmt(l.pay_amount)}</div>
+                    <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--text3)' }}>
+                      {fmtDate(l.start_date)} – {fmtDate(l.end_date)}
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <button onClick={() => handleDeleteLeave(l)} title="Удалить"
+                        style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '3px 7px', fontSize: 11, cursor: 'pointer', color: 'var(--error)', fontFamily: 'inherit' }}>
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ════════ МОДАЛ: Добавить сотрудника ════════ */}
@@ -791,6 +995,10 @@ export default function Salary() {
               <button onClick={() => navigate(`/company/${companyId}/journal`)}
                 style={{ flex: 1, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '9px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--text)' }}>
                 📒 Перейти в журнал
+              </button>
+              <button onClick={handleExportRun}
+                style={{ flex: 1, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '9px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--text)' }}>
+                📊 Excel
               </button>
               <button onClick={() => handleDeleteRun(selectedRun)}
                 style={{ background: 'none', border: '1px solid var(--error)', borderRadius: 'var(--radius-sm)', padding: '9px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--error)' }}>

@@ -104,6 +104,11 @@ export const salary = {
   paySalary:      (companyId, runId, data) => api.post(`/api/salary/${companyId}/payroll/run/${runId}/pay`, data),
   payTaxes:       (companyId, runId, data) => api.post(`/api/salary/${companyId}/payroll/run/${runId}/pay-taxes`, data),
   payAdvance:     (companyId, runId, data) => api.post(`/api/salary/${companyId}/payroll/run/${runId}/advance`, data),
+  exportRun:      (companyId, runId)       => api.get(`/api/salary/${companyId}/payroll/run/${runId}/export`, { responseType: 'blob' }),
+  // Отпуска / больничные
+  leaves:         (companyId)              => api.get(`/api/salary/${companyId}/leaves`),
+  addLeave:       (companyId, data)        => api.post(`/api/salary/${companyId}/leaves`, data),
+  deleteLeave:    (companyId, leaveId)     => api.delete(`/api/salary/${companyId}/leaves/${leaveId}`),
 }
 
 export const deadlines = {
