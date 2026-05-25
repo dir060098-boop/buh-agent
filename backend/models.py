@@ -26,6 +26,7 @@ class Company(Base):
     esf_records = relationship("ESF", back_populates="company")
     bank_accounts = relationship("BankAccount", back_populates="company")
     employees = relationship("Employee", back_populates="company")
+    payroll_runs = relationship("PayrollRun", back_populates="company")
     deadlines = relationship("Deadline", back_populates="company")
     journal_entries = relationship("JournalEntry", back_populates="company")
 
@@ -126,6 +127,42 @@ class Employee(Base):
     is_foreign = Column(Boolean, default=False)
     is_active = Column(Boolean, default=True)
     company = relationship("Company", back_populates="employees")
+
+# ============================================================
+# ЗАРПЛАТА — ИСТОРИЯ РАСЧЁТОВ
+# ============================================================
+class PayrollRun(Base):
+    """Один расчёт зарплаты за конкретный месяц."""
+    __tablename__ = "payroll_runs"
+    id               = Column(Integer, primary_key=True)
+    company_id       = Column(Integer, ForeignKey("companies.id"))
+    year             = Column(Integer, nullable=False)
+    month            = Column(Integer, nullable=False)   # 1-12
+    status           = Column(String, default="posted")  # posted
+    gross_total      = Column(Float, default=0)
+    income_tax_total = Column(Float, default=0)
+    sf_employee_total= Column(Float, default=0)
+    sf_employer_total= Column(Float, default=0)
+    net_total        = Column(Float, default=0)
+    created_at       = Column(DateTime(timezone=True), server_default=func.now())
+    company          = relationship("Company", back_populates="payroll_runs")
+    entries          = relationship("PayrollRunEntry", back_populates="run", cascade="all, delete-orphan")
+
+class PayrollRunEntry(Base):
+    """Строка расчёта: один сотрудник за один месяц."""
+    __tablename__ = "payroll_run_entries"
+    id            = Column(Integer, primary_key=True)
+    run_id        = Column(Integer, ForeignKey("payroll_runs.id"))
+    employee_id   = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    employee_name = Column(String)   # снимок ФИО
+    position      = Column(String)
+    is_foreign    = Column(Boolean, default=False)
+    gross         = Column(Float)
+    income_tax    = Column(Float)
+    sf_employee   = Column(Float)
+    sf_employer   = Column(Float)
+    net           = Column(Float)
+    run           = relationship("PayrollRun", back_populates="entries")
 
 class Deadline(Base):
     __tablename__ = "deadlines"

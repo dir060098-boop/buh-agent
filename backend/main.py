@@ -102,6 +102,34 @@ def _run_migrations():
         "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'KGS'",
         "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS journal_entry_id INTEGER",
         "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()",
+        # payroll_runs
+        """CREATE TABLE IF NOT EXISTS payroll_runs (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER REFERENCES companies(id),
+            year INTEGER NOT NULL,
+            month INTEGER NOT NULL,
+            status VARCHAR(20) DEFAULT 'posted',
+            gross_total FLOAT DEFAULT 0,
+            income_tax_total FLOAT DEFAULT 0,
+            sf_employee_total FLOAT DEFAULT 0,
+            sf_employer_total FLOAT DEFAULT 0,
+            net_total FLOAT DEFAULT 0,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        )""",
+        # payroll_run_entries
+        """CREATE TABLE IF NOT EXISTS payroll_run_entries (
+            id SERIAL PRIMARY KEY,
+            run_id INTEGER REFERENCES payroll_runs(id) ON DELETE CASCADE,
+            employee_id INTEGER REFERENCES employees(id),
+            employee_name VARCHAR(255),
+            position VARCHAR(255),
+            is_foreign BOOLEAN DEFAULT FALSE,
+            gross FLOAT,
+            income_tax FLOAT,
+            sf_employee FLOAT,
+            sf_employer FLOAT,
+            net FLOAT
+        )""",
     ]
     try:
         with engine.connect() as conn:
