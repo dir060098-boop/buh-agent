@@ -50,9 +50,20 @@ class EmployeeCreate(BaseModel):
     hire_date:  str            # YYYY-MM-DD
     is_foreign: bool = False
 
+class EmployeeUpdate(BaseModel):
+    full_name:  Optional[str]   = None
+    inn:        Optional[str]   = None
+    position:   Optional[str]   = None
+    salary:     Optional[float] = None
+    is_foreign: Optional[bool]  = None
+
 class RunPayrollRequest(BaseModel):
     year:  int
     month: int   # 1-12
+
+class PayRequest(BaseModel):
+    pay_date:    str = ""        # YYYY-MM-DD, пусто = сегодня
+    account_type: str = "bank"   # bank | cash
 
 
 # ── Хелперы ────────────────────────────────────────────────────────────────
@@ -102,6 +113,10 @@ def _run_dict(run: models.PayrollRun) -> dict:
         "sf_employee_total":run.sf_employee_total,
         "sf_employer_total":run.sf_employer_total,
         "net_total":        run.net_total,
+        "is_paid":          run.is_paid or False,
+        "paid_at":          run.paid_at.isoformat() if run.paid_at else None,
+        "is_tax_paid":      run.is_tax_paid or False,
+        "tax_paid_at":      run.tax_paid_at.isoformat() if run.tax_paid_at else None,
         "created_at":       run.created_at.isoformat() if run.created_at else None,
     }
 
@@ -369,3 +384,90 @@ def delete_run(company_id: int, run_id: int,
     db.delete(run)
     db.commit()
     return {"ok": True}
+
+
+# ── Редактировать сотрудника ────────────────────────────────────────────────
+@router.patch("/{company_id}/employees/{emp_id}")
+def update_employee(company_id: int, emp_id: int, data: EmployeeUpdate,
+                    db: Session = Depends(get_db),
+                    user = Depends(get_current_user)):
+    emp = db.query(models.Employee).filter(
+        models.Employee.id         == emp_id,
+        models.Employee.company_id == company_id,
+    ).first()
+    if not emp:
+        raise HTTPException(404, "Сотрудник не найден")
+    if data.full_name  is not None: emp.full_name  = data.full_name
+    if data.inn        is not None: emp.inn        = data.inn
+    if data.position   is not None: emp.position   = data.position
+    if data.salary     is not None: emp.salary     = data.salary
+    if data.is_foreign is not None: emp.is_foreign = data.is_foreign
+    db.commit()
+    return _emp_dict(emp)
+
+
+# ── Выплатить зарплату ─────────────────────────────────────────────────────
+@router.post("/{company_id}/payroll/run/{run_id}/pay")
+def pay_salary(company_id: int, run_id: int, data: PayRequest,
+               db: Session = Depends(get_db),
+               user = Depends(get_current_user)):
+    """
+    Выплатить зарплату — создаёт проводку Дт 3520 / Кт 1210 (банк) или Кт 1110 (касса).
+    """
+    run = db.query(models.PayrollRun).filter(
+        models.PayrollRun.id         == run_id,
+        models.PayrollRun.company_id == company_id,
+    ).first()
+    if not run:
+        raise HTTPException(404, "Расчёт не найден")
+    if run.is_paid:
+        raise HTTPException(400, "Зарплата уже выплачена")
+
+    credit = "1110" if data.account_type == "cash" else "1210"
+    pay_dt = datetime.strptime(data.pay_date, "%Y-%m-%d") if data.pay_date else datetime.utcnow()
+    label  = f"{MONTH_RU[run.month]} {run.year}"
+
+    _post_entry(company_id, "3520", credit, run.net_total,
+                f"Выплата заработной платы за {label}", run, db)
+
+    run.is_paid = True
+    run.paid_at = pay_dt
+    db.commit()
+    db.refresh(run)
+    return _run_detail(run)
+
+
+# ── Оплатить налоги в бюджет ───────────────────────────────────────────────
+@router.post("/{company_id}/payroll/run/{run_id}/pay-taxes")
+def pay_taxes(company_id: int, run_id: int, data: PayRequest,
+              db: Session = Depends(get_db),
+              user = Depends(get_current_user)):
+    """
+    Оплата налогов и соцфонда в бюджет:
+      Дт 3410 / Кт 1210 — подоходный налог
+      Дт 3530 / Кт 1210 — социальный фонд (работник + работодатель)
+    """
+    run = db.query(models.PayrollRun).filter(
+        models.PayrollRun.id         == run_id,
+        models.PayrollRun.company_id == company_id,
+    ).first()
+    if not run:
+        raise HTTPException(404, "Расчёт не найден")
+    if run.is_tax_paid:
+        raise HTTPException(400, "Налоги уже оплачены")
+
+    credit  = "1110" if data.account_type == "cash" else "1210"
+    pay_dt  = datetime.strptime(data.pay_date, "%Y-%m-%d") if data.pay_date else datetime.utcnow()
+    label   = f"{MONTH_RU[run.month]} {run.year}"
+    sf_total = round((run.sf_employee_total or 0) + (run.sf_employer_total or 0), 2)
+
+    _post_entry(company_id, "3410", credit, run.income_tax_total,
+                f"Оплата подоходного налога за {label}", run, db)
+    _post_entry(company_id, "3530", credit, sf_total,
+                f"Оплата социального фонда за {label}", run, db)
+
+    run.is_tax_paid = True
+    run.tax_paid_at = pay_dt
+    db.commit()
+    db.refresh(run)
+    return _run_detail(run)

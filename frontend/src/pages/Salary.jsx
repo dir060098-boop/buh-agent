@@ -10,7 +10,8 @@ function fmt(n) {
 }
 function fmtDate(s) {
   if (!s) return '—'
-  const [y, m, d] = s.split('-')
+  const part = s.slice(0, 10)   // берём только YYYY-MM-DD из ISO строки
+  const [y, m, d] = part.split('-')
   return `${d}.${m}.${y}`
 }
 
@@ -29,6 +30,7 @@ const LBL = {
 }
 
 const EMPTY_EMP = { full_name: '', inn: '', position: '', salary: '', hire_date: '', is_foreign: false }
+const today = new Date().toISOString().slice(0, 10)
 
 // ── Главный компонент ───────────────────────────────────────────────────────
 export default function Salary() {
@@ -44,8 +46,9 @@ export default function Salary() {
   const [loading, setLoading]   = useState(false)
   const [confirmState, setConfirmState] = useState(null)
 
-  // Форма добавления сотрудника
+  // Форма добавления / редактирования сотрудника
   const [showAddEmp, setShowAddEmp] = useState(false)
+  const [editEmp, setEditEmp]       = useState(null)      // null = добавление, объект = редактирование
   const [empForm, setEmpForm]       = useState(EMPTY_EMP)
   const [saving, setSaving]         = useState(false)
 
@@ -54,6 +57,10 @@ export default function Salary() {
   const [payYear, setPayYear]   = useState(now.getFullYear())
   const [payMonth, setPayMonth] = useState(now.getMonth() + 1)
   const [posting, setPosting]   = useState(false)
+
+  // Форма выплаты
+  const [payForm, setPayForm] = useState({ pay_date: today, account_type: 'bank' })
+  const [paying, setPaying]   = useState(false)
 
   useEffect(() => {
     companies.get(companyId).then(r => setCompany(r.data)).catch(() => {})
@@ -96,6 +103,68 @@ export default function Salary() {
       setEmpForm(EMPTY_EMP)
       loadEmployees()
     } finally { setSaving(false) }
+  }
+
+  // ── Открыть форму редактирования ────────────────────────────────────────
+  function openEditEmp(emp) {
+    setEditEmp(emp)
+    setEmpForm({
+      full_name:  emp.full_name,
+      inn:        emp.inn || '',
+      position:   emp.position || '',
+      salary:     emp.salary,
+      hire_date:  emp.hire_date || '',
+      is_foreign: emp.is_foreign,
+    })
+    setShowAddEmp(true)
+  }
+
+  // ── Сохранить изменения сотрудника ───────────────────────────────────────
+  async function handleSaveEmployee() {
+    if (!empForm.full_name || !empForm.salary) return
+    setSaving(true)
+    try {
+      if (editEmp) {
+        await salary.updateEmployee(companyId, editEmp.id, {
+          full_name:  empForm.full_name,
+          inn:        empForm.inn || null,
+          position:   empForm.position || null,
+          salary:     parseFloat(empForm.salary),
+          is_foreign: empForm.is_foreign,
+        })
+      } else {
+        await salary.addEmployee(companyId, { ...empForm, salary: parseFloat(empForm.salary) })
+      }
+      setShowAddEmp(false)
+      setEditEmp(null)
+      setEmpForm(EMPTY_EMP)
+      loadEmployees()
+      if (tab === 'payroll') loadPreview()
+    } finally { setSaving(false) }
+  }
+
+  // ── Выплатить зарплату ───────────────────────────────────────────────────
+  async function handlePaySalary() {
+    setPaying(true)
+    try {
+      const r = await salary.paySalary(companyId, selectedRun.id, payForm)
+      setSelectedRun(r.data)
+      loadHistory()
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Ошибка выплаты')
+    } finally { setPaying(false) }
+  }
+
+  // ── Оплатить налоги ──────────────────────────────────────────────────────
+  async function handlePayTaxes() {
+    setPaying(true)
+    try {
+      const r = await salary.payTaxes(companyId, selectedRun.id, payForm)
+      setSelectedRun(r.data)
+      loadHistory()
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Ошибка оплаты налогов')
+    } finally { setPaying(false) }
   }
 
   // ── Уволить сотрудника ──────────────────────────────────────────────────
@@ -245,6 +314,10 @@ export default function Salary() {
                       }
                     </div>
                     <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
+                      <button onClick={() => openEditEmp(emp)} title="Редактировать"
+                        style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '3px 7px', fontSize: 11, cursor: 'pointer', color: 'var(--accent)', fontFamily: 'inherit' }}>
+                        ✏️
+                      </button>
                       <button onClick={() => handleFire(emp)} title="Уволить"
                         style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '3px 7px', fontSize: 11, cursor: 'pointer', color: 'var(--warn)', fontFamily: 'inherit' }}>
                         Уволить
@@ -400,7 +473,16 @@ export default function Salary() {
                       onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <div style={{ fontWeight: 700, fontSize: 13 }}>{MONTHS[run.month]} {run.year}</div>
-                        <span style={{ background: 'var(--success-light)', color: 'var(--success)', fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20 }}>Проведено</span>
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          {run.is_paid
+                            ? <span style={{ background: 'var(--success-light)', color: 'var(--success)', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20 }}>✓ Выплачено</span>
+                            : <span style={{ background: 'var(--warn-light)', color: 'var(--warn)', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20 }}>Не выплачено</span>
+                          }
+                          {run.is_tax_paid
+                            ? <span style={{ background: '#e8f0fe', color: '#1a56db', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20 }}>✓ Налоги</span>
+                            : <span style={{ background: 'var(--surface2)', color: 'var(--text3)', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20 }}>Налоги</span>
+                          }
+                        </div>
                       </div>
                       <div style={{ marginTop: 6, fontSize: 12, color: 'var(--text2)' }}>
                         К выдаче: <strong>{fmt(run.net_total)} KGS</strong>
@@ -419,13 +501,13 @@ export default function Salary() {
 
       {/* ════════ МОДАЛ: Добавить сотрудника ════════ */}
       {showAddEmp && (
-        <div onClick={() => setShowAddEmp(false)}
+        <div onClick={() => { setShowAddEmp(false); setEditEmp(null); setEmpForm(EMPTY_EMP) }}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div onClick={e => e.stopPropagation()}
             style={{ background: 'var(--surface)', borderRadius: 'var(--radius-lg)', width: '100%', maxWidth: 440, boxShadow: 'var(--shadow-lg)', overflow: 'hidden' }}>
             <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ fontWeight: 800, fontSize: 15 }}>Новый сотрудник</div>
-              <button onClick={() => setShowAddEmp(false)} style={{ background: 'none', border: 'none', fontSize: 20, color: 'var(--text3)', cursor: 'pointer' }}>×</button>
+              <div style={{ fontWeight: 800, fontSize: 15 }}>{editEmp ? 'Редактировать сотрудника' : 'Новый сотрудник'}</div>
+              <button onClick={() => { setShowAddEmp(false); setEditEmp(null); setEmpForm(EMPTY_EMP) }} style={{ background: 'none', border: 'none', fontSize: 20, color: 'var(--text3)', cursor: 'pointer' }}>×</button>
             </div>
             <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
               <div>
@@ -469,12 +551,12 @@ export default function Salary() {
               )}
             </div>
             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
-              <button onClick={handleAddEmployee}
-                disabled={!empForm.full_name || !empForm.salary || !empForm.hire_date || saving}
-                style={{ flex: 2, background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', padding: 12, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', opacity: (!empForm.full_name || !empForm.salary || !empForm.hire_date) ? 0.5 : 1 }}>
-                {saving ? 'Сохранение...' : 'Добавить'}
+              <button onClick={handleSaveEmployee}
+                disabled={!empForm.full_name || !empForm.salary || (!editEmp && !empForm.hire_date) || saving}
+                style={{ flex: 2, background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', padding: 12, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', opacity: (!empForm.full_name || !empForm.salary) ? 0.5 : 1 }}>
+                {saving ? 'Сохранение...' : editEmp ? 'Сохранить изменения' : 'Добавить'}
               </button>
-              <button onClick={() => setShowAddEmp(false)}
+              <button onClick={() => { setShowAddEmp(false); setEditEmp(null); setEmpForm(EMPTY_EMP) }}
                 style={{ flex: 1, background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: 12, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--text2)' }}>
                 Отмена
               </button>
@@ -536,13 +618,71 @@ export default function Salary() {
 
               {/* Легенда проводок */}
               <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', background: 'var(--ai-light)' }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ai)', marginBottom: 6 }}>📒 Проводки в журнале</div>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ai)', marginBottom: 6 }}>📒 Проводки начисления</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: 'var(--text2)' }}>
                   <div>Дт 8010 / Кт 3520 — {fmt(selectedRun.gross_total)} (начисление зарплаты)</div>
                   <div>Дт 3520 / Кт 3410 — {fmt(selectedRun.income_tax_total)} (подоходный налог)</div>
                   {selectedRun.sf_employee_total > 0 && <div>Дт 3520 / Кт 3530 — {fmt(selectedRun.sf_employee_total)} (СФ работника)</div>}
                   {selectedRun.sf_employer_total > 0 && <div>Дт 8020 / Кт 3530 — {fmt(selectedRun.sf_employer_total)} (СФ работодателя)</div>}
                 </div>
+              </div>
+
+              {/* Блок выплат */}
+              <div style={{ padding: '14px 16px', borderTop: '2px solid var(--border)' }}>
+                {/* Дата и счёт — общие для обеих кнопок */}
+                <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={LBL}>Дата операции</label>
+                    <input type="date" value={payForm.pay_date}
+                      onChange={e => setPayForm(f => ({ ...f, pay_date: e.target.value }))}
+                      style={{ ...SEL, width: '100%', boxSizing: 'border-box' }} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={LBL}>Счёт списания</label>
+                    <select value={payForm.account_type}
+                      onChange={e => setPayForm(f => ({ ...f, account_type: e.target.value }))}
+                      style={{ ...SEL, width: '100%' }}>
+                      <option value="bank">🏦 Банк (1210)</option>
+                      <option value="cash">💵 Касса (1110)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {/* Выплатить зарплату */}
+                  <button
+                    onClick={handlePaySalary}
+                    disabled={paying || selectedRun.is_paid}
+                    style={{
+                      flex: 1, border: 'none', borderRadius: 'var(--radius-sm)', padding: '10px 0',
+                      fontSize: 12, fontWeight: 700, cursor: selectedRun.is_paid ? 'default' : 'pointer',
+                      fontFamily: 'inherit',
+                      background: selectedRun.is_paid ? 'var(--success-light)' : 'var(--success)',
+                      color: selectedRun.is_paid ? 'var(--success)' : '#fff',
+                    }}>
+                    {selectedRun.is_paid
+                      ? `✓ Выплачено ${selectedRun.paid_at ? fmtDate(selectedRun.paid_at.slice(0,10)) : ''}`
+                      : `💸 Выплатить ${fmt(selectedRun.net_total)} KGS`}
+                  </button>
+
+                  {/* Оплатить налоги */}
+                  <button
+                    onClick={handlePayTaxes}
+                    disabled={paying || selectedRun.is_tax_paid}
+                    style={{
+                      flex: 1, border: 'none', borderRadius: 'var(--radius-sm)', padding: '10px 0',
+                      fontSize: 12, fontWeight: 700, cursor: selectedRun.is_tax_paid ? 'default' : 'pointer',
+                      fontFamily: 'inherit',
+                      background: selectedRun.is_tax_paid ? '#e8f0fe' : 'var(--accent)',
+                      color: selectedRun.is_tax_paid ? '#1a56db' : '#fff',
+                    }}>
+                    {selectedRun.is_tax_paid
+                      ? `✓ Налоги оплачены`
+                      : `🏛 Оплатить налоги`}
+                  </button>
+                </div>
+
+                {paying && <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text3)', textAlign: 'center' }}>Создаём проводку...</div>}
               </div>
             </div>
 

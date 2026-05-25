@@ -102,6 +102,11 @@ def _run_migrations():
         "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'KGS'",
         "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS journal_entry_id INTEGER",
         "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()",
+        # payroll_runs — новые колонки для статуса выплаты
+        "ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS is_paid BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS paid_at TIMESTAMP",
+        "ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS is_tax_paid BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS tax_paid_at TIMESTAMP",
         # payroll_runs
         """CREATE TABLE IF NOT EXISTS payroll_runs (
             id SERIAL PRIMARY KEY,

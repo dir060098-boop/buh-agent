@@ -91,15 +91,18 @@ export const bank = {
 }
 
 export const salary = {
-  employees:      (companyId)        => api.get(`/api/salary/${companyId}/employees`),
-  addEmployee:    (companyId, data)  => api.post(`/api/salary/${companyId}/employees`, data),
-  fire:           (companyId, empId) => api.patch(`/api/salary/${companyId}/employees/${empId}/fire`),
-  deleteEmployee: (companyId, empId) => api.delete(`/api/salary/${companyId}/employees/${empId}`),
-  payroll:        (companyId)        => api.get(`/api/salary/${companyId}/payroll`),
-  runPayroll:     (companyId, data)  => api.post(`/api/salary/${companyId}/payroll/run`, data),
-  history:        (companyId)        => api.get(`/api/salary/${companyId}/payroll/history`),
-  getRun:         (companyId, runId) => api.get(`/api/salary/${companyId}/payroll/run/${runId}`),
-  deleteRun:      (companyId, runId) => api.delete(`/api/salary/${companyId}/payroll/run/${runId}`),
+  employees:      (companyId)              => api.get(`/api/salary/${companyId}/employees`),
+  addEmployee:    (companyId, data)        => api.post(`/api/salary/${companyId}/employees`, data),
+  updateEmployee: (companyId, empId, data) => api.patch(`/api/salary/${companyId}/employees/${empId}`, data),
+  fire:           (companyId, empId)       => api.patch(`/api/salary/${companyId}/employees/${empId}/fire`),
+  deleteEmployee: (companyId, empId)       => api.delete(`/api/salary/${companyId}/employees/${empId}`),
+  payroll:        (companyId)              => api.get(`/api/salary/${companyId}/payroll`),
+  runPayroll:     (companyId, data)        => api.post(`/api/salary/${companyId}/payroll/run`, data),
+  history:        (companyId)              => api.get(`/api/salary/${companyId}/payroll/history`),
+  getRun:         (companyId, runId)       => api.get(`/api/salary/${companyId}/payroll/run/${runId}`),
+  deleteRun:      (companyId, runId)       => api.delete(`/api/salary/${companyId}/payroll/run/${runId}`),
+  paySalary:      (companyId, runId, data) => api.post(`/api/salary/${companyId}/payroll/run/${runId}/pay`, data),
+  payTaxes:       (companyId, runId, data) => api.post(`/api/salary/${companyId}/payroll/run/${runId}/pay-taxes`, data),
 }
 
 export const deadlines = {

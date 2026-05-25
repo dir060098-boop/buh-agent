@@ -144,6 +144,10 @@ class PayrollRun(Base):
     sf_employee_total= Column(Float, default=0)
     sf_employer_total= Column(Float, default=0)
     net_total        = Column(Float, default=0)
+    is_paid          = Column(Boolean, default=False)   # зарплата выплачена
+    paid_at          = Column(DateTime, nullable=True)
+    is_tax_paid      = Column(Boolean, default=False)   # налоги оплачены в бюджет
+    tax_paid_at      = Column(DateTime, nullable=True)
     created_at       = Column(DateTime(timezone=True), server_default=func.now())
     company          = relationship("Company", back_populates="payroll_runs")
     entries          = relationship("PayrollRunEntry", back_populates="run", cascade="all, delete-orphan")
