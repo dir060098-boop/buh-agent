@@ -148,6 +148,9 @@ class PayrollRun(Base):
     paid_at          = Column(DateTime, nullable=True)
     is_tax_paid      = Column(Boolean, default=False)   # налоги оплачены в бюджет
     tax_paid_at      = Column(DateTime, nullable=True)
+    advance_total    = Column(Float, default=0)          # аванс уже выплачен (сумма)
+    is_advance_paid  = Column(Boolean, default=False)
+    advance_paid_at  = Column(DateTime, nullable=True)
     created_at       = Column(DateTime(timezone=True), server_default=func.now())
     company          = relationship("Company", back_populates="payroll_runs")
     entries          = relationship("PayrollRunEntry", back_populates="run", cascade="all, delete-orphan")
@@ -161,11 +164,14 @@ class PayrollRunEntry(Base):
     employee_name = Column(String)   # снимок ФИО
     position      = Column(String)
     is_foreign    = Column(Boolean, default=False)
-    gross         = Column(Float)
+    bonus         = Column(Float, default=0)   # премия (облагается налогом)
+    deduction     = Column(Float, default=0)   # удержание (не влияет на налог)
+    gross         = Column(Float)              # оклад
+    taxable       = Column(Float)              # оклад + премия (налоговая база)
     income_tax    = Column(Float)
     sf_employee   = Column(Float)
     sf_employer   = Column(Float)
-    net           = Column(Float)
+    net           = Column(Float)              # к выдаче = taxable - налоги - удержания
     run           = relationship("PayrollRun", back_populates="entries")
 
 class Deadline(Base):

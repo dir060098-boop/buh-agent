@@ -102,11 +102,18 @@ def _run_migrations():
         "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'KGS'",
         "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS journal_entry_id INTEGER",
         "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()",
-        # payroll_runs — новые колонки для статуса выплаты
+        # payroll_runs — статус выплат
         "ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS is_paid BOOLEAN DEFAULT FALSE",
         "ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS paid_at TIMESTAMP",
         "ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS is_tax_paid BOOLEAN DEFAULT FALSE",
         "ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS tax_paid_at TIMESTAMP",
+        "ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS advance_total FLOAT DEFAULT 0",
+        "ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS is_advance_paid BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE payroll_runs ADD COLUMN IF NOT EXISTS advance_paid_at TIMESTAMP",
+        # payroll_run_entries — премии и удержания
+        "ALTER TABLE payroll_run_entries ADD COLUMN IF NOT EXISTS bonus FLOAT DEFAULT 0",
+        "ALTER TABLE payroll_run_entries ADD COLUMN IF NOT EXISTS deduction FLOAT DEFAULT 0",
+        "ALTER TABLE payroll_run_entries ADD COLUMN IF NOT EXISTS taxable FLOAT",
         # payroll_runs
         """CREATE TABLE IF NOT EXISTS payroll_runs (
             id SERIAL PRIMARY KEY,

@@ -57,29 +57,44 @@ class EmployeeUpdate(BaseModel):
     salary:     Optional[float] = None
     is_foreign: Optional[bool]  = None
 
+class AdjustmentItem(BaseModel):
+    employee_id: int
+    bonus:       float = 0.0   # премия — облагается налогом
+    deduction:   float = 0.0   # удержание — не влияет на налог (аванс, штраф и т.д.)
+
 class RunPayrollRequest(BaseModel):
-    year:  int
-    month: int   # 1-12
+    year:        int
+    month:       int   # 1-12
+    adjustments: list[AdjustmentItem] = []
 
 class PayRequest(BaseModel):
-    pay_date:    str = ""        # YYYY-MM-DD, пусто = сегодня
-    account_type: str = "bank"   # bank | cash
+    pay_date:     str = ""      # YYYY-MM-DD, пусто = сегодня
+    account_type: str = "bank"  # bank | cash
+
+class AdvanceRequest(BaseModel):
+    amount:       float
+    pay_date:     str = ""
+    account_type: str = "bank"
 
 
 # ── Хелперы ────────────────────────────────────────────────────────────────
-def _calc(emp: models.Employee) -> dict:
-    rates = TAX["foreign"] if emp.is_foreign else TAX["resident"]
-    gross      = emp.salary
-    income_tax = round(gross * rates["income_tax"],  2)
-    sf_emp     = round(gross * rates["sf_employee"], 2)
-    sf_er      = round(gross * rates["sf_employer"], 2)
-    net        = round(gross - income_tax - sf_emp,  2)
+def _calc(emp: models.Employee, bonus: float = 0.0, deduction: float = 0.0) -> dict:
+    rates   = TAX["foreign"] if emp.is_foreign else TAX["resident"]
+    gross   = emp.salary
+    taxable = round(gross + bonus, 2)          # премия облагается налогом
+    income_tax = round(taxable * rates["income_tax"],  2)
+    sf_emp     = round(taxable * rates["sf_employee"], 2)
+    sf_er      = round(taxable * rates["sf_employer"], 2)
+    net        = round(taxable - income_tax - sf_emp - deduction, 2)
     return {
         "employee_id":   emp.id,
         "employee_name": emp.full_name,
         "position":      emp.position or "",
         "is_foreign":    emp.is_foreign,
         "gross":         gross,
+        "bonus":         round(bonus, 2),
+        "deduction":     round(deduction, 2),
+        "taxable":       taxable,
         "income_tax":    income_tax,
         "sf_employee":   sf_emp,
         "sf_employer":   sf_er,
@@ -113,11 +128,14 @@ def _run_dict(run: models.PayrollRun) -> dict:
         "sf_employee_total":run.sf_employee_total,
         "sf_employer_total":run.sf_employer_total,
         "net_total":        run.net_total,
-        "is_paid":          run.is_paid or False,
-        "paid_at":          run.paid_at.isoformat() if run.paid_at else None,
-        "is_tax_paid":      run.is_tax_paid or False,
-        "tax_paid_at":      run.tax_paid_at.isoformat() if run.tax_paid_at else None,
-        "created_at":       run.created_at.isoformat() if run.created_at else None,
+        "is_paid":           run.is_paid or False,
+        "paid_at":           run.paid_at.isoformat() if run.paid_at else None,
+        "is_tax_paid":       run.is_tax_paid or False,
+        "tax_paid_at":       run.tax_paid_at.isoformat() if run.tax_paid_at else None,
+        "advance_total":     run.advance_total or 0,
+        "is_advance_paid":   run.is_advance_paid or False,
+        "advance_paid_at":   run.advance_paid_at.isoformat() if run.advance_paid_at else None,
+        "created_at":        run.created_at.isoformat() if run.created_at else None,
     }
 
 
@@ -131,6 +149,9 @@ def _run_detail(run: models.PayrollRun) -> dict:
             "position":      e.position,
             "is_foreign":    e.is_foreign,
             "gross":         e.gross,
+            "bonus":         e.bonus or 0,
+            "deduction":     e.deduction or 0,
+            "taxable":       e.taxable or e.gross,
             "income_tax":    e.income_tax,
             "sf_employee":   e.sf_employee,
             "sf_employer":   e.sf_employer,
@@ -250,6 +271,9 @@ def preview_payroll(company_id: int,
         "rows": rows,
         "totals": {
             "gross":       round(sum(r["gross"]       for r in rows), 2),
+            "bonus":       round(sum(r["bonus"]       for r in rows), 2),
+            "deduction":   round(sum(r["deduction"]   for r in rows), 2),
+            "taxable":     round(sum(r["taxable"]     for r in rows), 2),
             "income_tax":  round(sum(r["income_tax"]  for r in rows), 2),
             "sf_employee": round(sum(r["sf_employee"] for r in rows), 2),
             "sf_employer": round(sum(r["sf_employer"] for r in rows), 2),
@@ -316,9 +340,18 @@ def run_payroll(company_id: int, data: RunPayrollRequest,
     if not emps:
         raise HTTPException(400, "Нет активных сотрудников")
 
-    rows = [_calc(e) for e in emps]
+    # Собираем map adjustments по employee_id
+    adj_map = {a.employee_id: a for a in (data.adjustments or [])}
+
+    rows = [
+        _calc(e,
+              bonus     = adj_map[e.id].bonus     if e.id in adj_map else 0.0,
+              deduction = adj_map[e.id].deduction if e.id in adj_map else 0.0)
+        for e in emps
+    ]
 
     gross      = round(sum(r["gross"]       for r in rows), 2)
+    taxable_t  = round(sum(r["taxable"]     for r in rows), 2)
     it_total   = round(sum(r["income_tax"]  for r in rows), 2)
     sf_emp_t   = round(sum(r["sf_employee"] for r in rows), 2)
     sf_er_t    = round(sum(r["sf_employer"] for r in rows), 2)
@@ -347,7 +380,10 @@ def run_payroll(company_id: int, data: RunPayrollRequest,
             employee_name = r["employee_name"],
             position      = r["position"],
             is_foreign    = r["is_foreign"],
+            bonus         = r["bonus"],
+            deduction     = r["deduction"],
             gross         = r["gross"],
+            taxable       = r["taxable"],
             income_tax    = r["income_tax"],
             sf_employee   = r["sf_employee"],
             sf_employer   = r["sf_employer"],
@@ -384,6 +420,39 @@ def delete_run(company_id: int, run_id: int,
     db.delete(run)
     db.commit()
     return {"ok": True}
+
+
+# ── Аванс ─────────────────────────────────────────────────────────────────
+@router.post("/{company_id}/payroll/run/{run_id}/advance")
+def pay_advance(company_id: int, run_id: int, data: AdvanceRequest,
+                db: Session = Depends(get_db),
+                user = Depends(get_current_user)):
+    """
+    Зафиксировать ранее выплаченный аванс — Дт 3520 / Кт 1210 (1110).
+    Уменьшает итоговую сумму при выплате основной зарплаты.
+    """
+    run = db.query(models.PayrollRun).filter(
+        models.PayrollRun.id         == run_id,
+        models.PayrollRun.company_id == company_id,
+    ).first()
+    if not run:
+        raise HTTPException(404, "Расчёт не найден")
+    if run.is_advance_paid:
+        raise HTTPException(400, "Аванс уже зафиксирован")
+
+    credit  = "1110" if data.account_type == "cash" else "1210"
+    pay_dt  = datetime.strptime(data.pay_date, "%Y-%m-%d") if data.pay_date else datetime.utcnow()
+    label   = f"{MONTH_RU[run.month]} {run.year}"
+
+    _post_entry(company_id, "3520", credit, data.amount,
+                f"Аванс по заработной плате за {label}", run, db)
+
+    run.advance_total   = round(data.amount, 2)
+    run.is_advance_paid = True
+    run.advance_paid_at = pay_dt
+    db.commit()
+    db.refresh(run)
+    return _run_detail(run)
 
 
 # ── Редактировать сотрудника ────────────────────────────────────────────────

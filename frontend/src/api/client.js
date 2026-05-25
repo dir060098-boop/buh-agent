@@ -103,6 +103,7 @@ export const salary = {
   deleteRun:      (companyId, runId)       => api.delete(`/api/salary/${companyId}/payroll/run/${runId}`),
   paySalary:      (companyId, runId, data) => api.post(`/api/salary/${companyId}/payroll/run/${runId}/pay`, data),
   payTaxes:       (companyId, runId, data) => api.post(`/api/salary/${companyId}/payroll/run/${runId}/pay-taxes`, data),
+  payAdvance:     (companyId, runId, data) => api.post(`/api/salary/${companyId}/payroll/run/${runId}/advance`, data),
 }
 
 export const deadlines = {

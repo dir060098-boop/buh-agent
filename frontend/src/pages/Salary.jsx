@@ -62,6 +62,15 @@ export default function Salary() {
   const [payForm, setPayForm] = useState({ pay_date: today, account_type: 'bank' })
   const [paying, setPaying]   = useState(false)
 
+  // Корректировки (премии/удержания) перед проведением
+  const [adjustments, setAdjustments] = useState({})   // { employee_id: { bonus, deduction } }
+
+  // Аванс
+  const [advForm, setAdvForm] = useState({ amount: '', pay_date: today, account_type: 'bank' })
+
+  // Расчётный листок
+  const [slipEntry, setSlipEntry] = useState(null)
+
   useEffect(() => {
     companies.get(companyId).then(r => setCompany(r.data)).catch(() => {})
   }, [companyId])
@@ -199,13 +208,38 @@ export default function Salary() {
   async function handleRunPayroll() {
     setPosting(true)
     try {
-      const run = await salary.runPayroll(companyId, { year: payYear, month: payMonth })
+      const adjs = Object.entries(adjustments)
+        .filter(([, v]) => (v.bonus || 0) !== 0 || (v.deduction || 0) !== 0)
+        .map(([emp_id, v]) => ({
+          employee_id: parseInt(emp_id),
+          bonus:       parseFloat(v.bonus)     || 0,
+          deduction:   parseFloat(v.deduction) || 0,
+        }))
+      const run = await salary.runPayroll(companyId, { year: payYear, month: payMonth, adjustments: adjs })
+      setAdjustments({})
       loadHistory()
       setSelectedRun(run.data)
     } catch (err) {
       const msg = err.response?.data?.detail || 'Ошибка расчёта'
       alert(msg)
     } finally { setPosting(false) }
+  }
+
+  // ── Аванс ────────────────────────────────────────────────────────────────
+  async function handlePayAdvance() {
+    if (!advForm.amount || parseFloat(advForm.amount) <= 0) return
+    setPaying(true)
+    try {
+      const r = await salary.payAdvance(companyId, selectedRun.id, {
+        amount:       parseFloat(advForm.amount),
+        pay_date:     advForm.pay_date,
+        account_type: advForm.account_type,
+      })
+      setSelectedRun(r.data)
+      loadHistory()
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Ошибка')
+    } finally { setPaying(false) }
   }
 
   // ── Удалить расчёт ──────────────────────────────────────────────────────
@@ -415,38 +449,65 @@ export default function Salary() {
                 <div style={{ padding: 30, textAlign: 'center', color: 'var(--text3)', fontSize: 13 }}>Загрузка...</div>
               ) : preview && preview.rows.length > 0 ? (
                 <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
-                  <div style={{ padding: '10px 16px', background: 'var(--surface2)', borderBottom: '1px solid var(--border)', fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'grid', gridTemplateColumns: '1fr 90px 80px 80px 90px 90px' }}>
+                  <div style={{ padding: '8px 16px', background: 'var(--surface2)', borderBottom: '1px solid var(--border)', fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'grid', gridTemplateColumns: '1fr 80px 90px 90px 80px 80px 90px' }}>
                     <div>Сотрудник</div>
                     <div style={{ textAlign: 'right' }}>Оклад</div>
-                    <div style={{ textAlign: 'right' }}>ПН 10%</div>
-                    <div style={{ textAlign: 'right' }}>СФ 8%</div>
+                    <div style={{ textAlign: 'center' }}>Премия (+)</div>
+                    <div style={{ textAlign: 'center' }}>Удержание (−)</div>
+                    <div style={{ textAlign: 'right' }}>ПН</div>
+                    <div style={{ textAlign: 'right' }}>СФ</div>
                     <div style={{ textAlign: 'right' }}>К выдаче</div>
-                    <div style={{ textAlign: 'right' }}>СФ раб-ль</div>
                   </div>
-                  {preview.rows.map((r, i) => (
-                    <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 90px 80px 80px 90px 90px', padding: '10px 16px', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: 13 }}>{r.employee_name}</div>
-                        <div style={{ fontSize: 11, color: 'var(--text3)' }}>
-                          {r.position || ''}
-                          {r.is_foreign && <span style={{ marginLeft: 4, color: '#b45309', fontSize: 10, fontWeight: 700 }}>нерезидент</span>}
+                  {preview.rows.map((r, i) => {
+                    const adj = adjustments[r.employee_id] || { bonus: '', deduction: '' }
+                    const bonus = parseFloat(adj.bonus) || 0
+                    const ded   = parseFloat(adj.deduction) || 0
+                    // Пересчёт на лету
+                    const taxable = r.gross + bonus
+                    const it  = Math.round(taxable * (r.is_foreign ? 0.10 : 0.10) * 100) / 100
+                    const sf  = Math.round(taxable * (r.is_foreign ? 0 : 0.08) * 100) / 100
+                    const net = Math.round((taxable - it - sf - ded) * 100) / 100
+                    return (
+                      <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 80px 90px 90px 80px 80px 90px', padding: '8px 16px', borderBottom: '1px solid var(--border)', alignItems: 'center', gap: 4 }}>
+                        <div>
+                          <div style={{ fontWeight: 600, fontSize: 12 }}>{r.employee_name}</div>
+                          <div style={{ fontSize: 10, color: 'var(--text3)' }}>{r.position || ''}{r.is_foreign && <span style={{ marginLeft: 4, color: '#b45309' }}>нерез.</span>}</div>
                         </div>
+                        <div style={{ textAlign: 'right', fontSize: 12, fontWeight: 700 }}>{fmt(r.gross)}</div>
+                        <div>
+                          <input
+                            type="number" min="0" placeholder="0"
+                            value={adj.bonus}
+                            onChange={e => setAdjustments(a => ({ ...a, [r.employee_id]: { ...( a[r.employee_id] || {}), bonus: e.target.value } }))}
+                            style={{ width: '100%', boxSizing: 'border-box', ...INP, padding: '4px 6px', fontSize: 12, color: 'var(--success)', textAlign: 'right' }}
+                          />
+                        </div>
+                        <div>
+                          <input
+                            type="number" min="0" placeholder="0"
+                            value={adj.deduction}
+                            onChange={e => setAdjustments(a => ({ ...a, [r.employee_id]: { ...(a[r.employee_id] || {}), deduction: e.target.value } }))}
+                            style={{ width: '100%', boxSizing: 'border-box', ...INP, padding: '4px 6px', fontSize: 12, color: 'var(--error)', textAlign: 'right' }}
+                          />
+                        </div>
+                        <div style={{ textAlign: 'right', fontSize: 11, color: 'var(--error)' }}>−{fmt(it)}</div>
+                        <div style={{ textAlign: 'right', fontSize: 11, color: 'var(--error)' }}>−{fmt(sf)}</div>
+                        <div style={{ textAlign: 'right', fontSize: 12, fontWeight: 800, color: net >= 0 ? 'var(--success)' : 'var(--error)' }}>{fmt(net)}</div>
                       </div>
-                      <div style={{ textAlign: 'right', fontSize: 13, fontWeight: 700 }}>{fmt(r.gross)}</div>
-                      <div style={{ textAlign: 'right', fontSize: 12, color: 'var(--error)' }}>−{fmt(r.income_tax)}</div>
-                      <div style={{ textAlign: 'right', fontSize: 12, color: 'var(--error)' }}>−{fmt(r.sf_employee)}</div>
-                      <div style={{ textAlign: 'right', fontSize: 13, fontWeight: 800, color: 'var(--success)' }}>{fmt(r.net)}</div>
-                      <div style={{ textAlign: 'right', fontSize: 12, color: 'var(--warn)' }}>{fmt(r.sf_employer)}</div>
-                    </div>
-                  ))}
+                    )
+                  })}
                   {/* Итого */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px 80px 80px 90px 90px', padding: '10px 16px', background: 'var(--surface2)', borderTop: '2px solid var(--border)', fontWeight: 800, fontSize: 12 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 90px 90px 80px 80px 90px', padding: '8px 16px', background: 'var(--surface2)', borderTop: '2px solid var(--border)', fontWeight: 800, fontSize: 11 }}>
                     <div style={{ color: 'var(--text3)' }}>ИТОГО</div>
                     <div style={{ textAlign: 'right' }}>{fmt(preview.totals.gross)}</div>
+                    <div style={{ textAlign: 'right', color: 'var(--success)' }}>{fmt(Object.values(adjustments).reduce((s,a) => s + (parseFloat(a.bonus)||0), 0))}</div>
+                    <div style={{ textAlign: 'right', color: 'var(--error)' }}>{fmt(Object.values(adjustments).reduce((s,a) => s + (parseFloat(a.deduction)||0), 0))}</div>
                     <div style={{ textAlign: 'right', color: 'var(--error)' }}>−{fmt(preview.totals.income_tax)}</div>
                     <div style={{ textAlign: 'right', color: 'var(--error)' }}>−{fmt(preview.totals.sf_employee)}</div>
                     <div style={{ textAlign: 'right', color: 'var(--success)' }}>{fmt(preview.totals.net)}</div>
-                    <div style={{ textAlign: 'right', color: 'var(--warn)' }}>{fmt(preview.totals.sf_employer)}</div>
+                  </div>
+                  <div style={{ padding: '6px 16px', fontSize: 10, color: 'var(--text3)', background: 'var(--surface2)' }}>
+                    Премии и удержания войдут в расчёт при нажатии «Провести»
                   </div>
                 </div>
               ) : (
@@ -594,10 +655,18 @@ export default function Salary() {
                 <div style={{ textAlign: 'right' }}>СФ р-ль</div>
               </div>
               {(selectedRun.entries || []).map((e, i) => (
-                <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 90px 80px 80px 90px 90px', padding: '10px 16px', borderBottom: '1px solid var(--border)' }}>
+                <div key={i}
+                  onClick={() => setSlipEntry({ ...e, run: selectedRun })}
+                  style={{ display: 'grid', gridTemplateColumns: '1fr 90px 80px 80px 90px 90px', padding: '10px 16px', borderBottom: '1px solid var(--border)', cursor: 'pointer', transition: 'background 0.1s' }}
+                  onMouseEnter={ev => ev.currentTarget.style.background = 'var(--surface2)'}
+                  onMouseLeave={ev => ev.currentTarget.style.background = 'transparent'}>
                   <div>
                     <div style={{ fontWeight: 600, fontSize: 13 }}>{e.employee_name}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text3)' }}>{e.position || ''}</div>
+                    <div style={{ fontSize: 11, color: 'var(--text3)' }}>
+                      {e.position || ''}
+                      {e.bonus > 0 && <span style={{ marginLeft: 6, color: 'var(--success)', fontWeight: 700 }}>+{fmt(e.bonus)}</span>}
+                      {e.deduction > 0 && <span style={{ marginLeft: 6, color: 'var(--error)', fontWeight: 700 }}>−{fmt(e.deduction)}</span>}
+                    </div>
                   </div>
                   <div style={{ textAlign: 'right', fontSize: 13, fontWeight: 700 }}>{fmt(e.gross)}</div>
                   <div style={{ textAlign: 'right', fontSize: 12, color: 'var(--error)' }}>−{fmt(e.income_tax)}</div>
@@ -684,6 +753,37 @@ export default function Salary() {
 
                 {paying && <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text3)', textAlign: 'center' }}>Создаём проводку...</div>}
               </div>
+
+              {/* Аванс */}
+              <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', background: 'var(--surface2)' }}>
+                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>💰 Аванс</div>
+                {selectedRun.is_advance_paid ? (
+                  <div style={{ fontSize: 12, color: 'var(--success)' }}>
+                    ✓ Аванс {fmt(selectedRun.advance_total)} KGS выплачен {fmtDate(selectedRun.advance_paid_at)}
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ ...LBL, marginBottom: 3 }}>Сумма аванса</label>
+                      <input type="number" min="0" placeholder="0"
+                        value={advForm.amount}
+                        onChange={e => setAdvForm(f => ({ ...f, amount: e.target.value }))}
+                        style={{ ...INP, padding: '6px 8px', fontSize: 12 }} />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={{ ...LBL, marginBottom: 3 }}>Дата</label>
+                      <input type="date" value={advForm.pay_date}
+                        onChange={e => setAdvForm(f => ({ ...f, pay_date: e.target.value }))}
+                        style={{ ...SEL, width: '100%', boxSizing: 'border-box', padding: '6px 8px', fontSize: 12 }} />
+                    </div>
+                    <button onClick={handlePayAdvance}
+                      disabled={paying || !advForm.amount}
+                      style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', padding: '7px 14px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+                      Записать
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Футер */}
@@ -696,6 +796,75 @@ export default function Salary() {
                 style={{ background: 'none', border: '1px solid var(--error)', borderRadius: 'var(--radius-sm)', padding: '9px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--error)' }}>
                 Удалить расчёт
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════════ РАСЧЁТНЫЙ ЛИСТОК ════════ */}
+      {slipEntry && (
+        <div onClick={() => setSlipEntry(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: 'var(--surface)', borderRadius: 'var(--radius-lg)', width: '100%', maxWidth: 380, boxShadow: 'var(--shadow-lg)', overflow: 'hidden' }}>
+
+            {/* Шапка */}
+            <div style={{ background: 'var(--accent)', color: '#fff', padding: '16px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 15 }}>Расчётный листок</div>
+                <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2 }}>
+                  {MONTHS[slipEntry.run.month]} {slipEntry.run.year}
+                </div>
+              </div>
+              <button onClick={() => setSlipEntry(null)} style={{ background: 'none', border: 'none', color: '#fff', fontSize: 20, cursor: 'pointer', opacity: 0.8 }}>×</button>
+            </div>
+
+            {/* Сотрудник */}
+            <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
+              <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--text)' }}>{slipEntry.employee_name}</div>
+              <div style={{ fontSize: 12, color: 'var(--text3)' }}>{slipEntry.position || '—'}</div>
+            </div>
+
+            {/* Начисления */}
+            <div style={{ padding: '14px 20px' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Начислено</div>
+              {[
+                ['Оклад',   slipEntry.gross,      'var(--text)'],
+                slipEntry.bonus > 0     ? ['Премия',     slipEntry.bonus,      'var(--success)'] : null,
+              ].filter(Boolean).map(([label, val, color]) => (
+                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
+                  <span style={{ color: 'var(--text2)' }}>{label}</span>
+                  <span style={{ fontWeight: 600, color }}>{fmt(val)} KGS</span>
+                </div>
+              ))}
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--text3)', borderTop: '1px dashed var(--border)', paddingTop: 6, marginTop: 4 }}>
+                <span>Налоговая база</span>
+                <span>{fmt(slipEntry.taxable || slipEntry.gross)} KGS</span>
+              </div>
+            </div>
+
+            {/* Удержания */}
+            <div style={{ padding: '0 20px 14px', borderBottom: '1px solid var(--border)' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Удержано</div>
+              {[
+                ['Подоходный налог (ПН)',              slipEntry.income_tax],
+                ['Соцфонд работника',                  slipEntry.sf_employee],
+                slipEntry.deduction > 0 ? ['Удержание', slipEntry.deduction] : null,
+              ].filter(Boolean).map(([label, val]) => (
+                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
+                  <span style={{ color: 'var(--text2)' }}>{label}</span>
+                  <span style={{ fontWeight: 600, color: 'var(--error)' }}>−{fmt(val)} KGS</span>
+                </div>
+              ))}
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>
+                Соцфонд работодателя: {fmt(slipEntry.sf_employer)} KGS (за счёт компании)
+              </div>
+            </div>
+
+            {/* Итого */}
+            <div style={{ padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--text)' }}>К выдаче</div>
+              <div style={{ fontWeight: 800, fontSize: 18, color: 'var(--success)' }}>{fmt(slipEntry.net)} KGS</div>
             </div>
           </div>
         </div>
