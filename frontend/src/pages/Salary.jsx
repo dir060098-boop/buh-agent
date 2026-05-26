@@ -29,7 +29,7 @@ const LBL = {
   textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5,
 }
 
-const EMPTY_EMP   = { full_name: '', inn: '', position: '', salary: '', hire_date: '', is_foreign: false }
+const EMPTY_EMP   = { full_name: '', inn: '', position: '', department: '', salary: '', hire_date: '', is_foreign: false }
 const EMPTY_LEAVE = { employee_id: '', leave_type: 'vacation', start_date: '', end_date: '', notes: '' }
 const today = new Date().toISOString().slice(0, 10)
 
@@ -136,6 +136,7 @@ export default function Salary() {
       full_name:  emp.full_name,
       inn:        emp.inn || '',
       position:   emp.position || '',
+      department: emp.department || '',
       salary:     emp.salary,
       hire_date:  emp.hire_date || '',
       is_foreign: emp.is_foreign,
@@ -153,6 +154,7 @@ export default function Salary() {
           full_name:  empForm.full_name,
           inn:        empForm.inn || null,
           position:   empForm.position || null,
+          department: empForm.department || null,
           salary:     parseFloat(empForm.salary),
           is_foreign: empForm.is_foreign,
         })
@@ -383,21 +385,21 @@ export default function Salary() {
             {/* Таблица активных */}
             {active.length > 0 && (
               <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden', boxShadow: 'var(--shadow-sm)', marginBottom: 16 }}>
-                <div style={{ padding: '10px 16px', background: 'var(--surface2)', borderBottom: '1px solid var(--border)', fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'grid', gridTemplateColumns: '1fr 120px 140px 90px 80px 80px' }}>
+                <div style={{ padding: '10px 16px', background: 'var(--surface2)', borderBottom: '1px solid var(--border)', fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'grid', gridTemplateColumns: '1fr 130px 130px 90px 80px 80px' }}>
                   <div>Сотрудник</div>
-                  <div>ИНН</div>
+                  <div>Подразделение</div>
                   <div>Должность</div>
                   <div style={{ textAlign: 'right' }}>Оклад</div>
                   <div style={{ textAlign: 'center' }}>Статус</div>
                   <div></div>
                 </div>
                 {active.map(emp => (
-                  <div key={emp.id} style={{ display: 'grid', gridTemplateColumns: '1fr 120px 140px 90px 80px 80px', padding: '12px 16px', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
+                  <div key={emp.id} style={{ display: 'grid', gridTemplateColumns: '1fr 130px 130px 90px 80px 80px', padding: '12px 16px', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
                     <div>
                       <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--text)' }}>{emp.full_name}</div>
                       <div style={{ fontSize: 11, color: 'var(--text3)' }}>с {fmtDate(emp.hire_date)}</div>
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--text2)' }}>{emp.inn || '—'}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text2)' }}>{emp.department || '—'}</div>
                     <div style={{ fontSize: 12, color: 'var(--text2)' }}>{emp.position || '—'}</div>
                     <div style={{ textAlign: 'right', fontWeight: 700, fontSize: 13 }}>{fmt(emp.salary)}</div>
                     <div style={{ textAlign: 'center' }}>
@@ -435,12 +437,12 @@ export default function Salary() {
                 </summary>
                 <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden', boxShadow: 'var(--shadow-sm)', marginTop: 6 }}>
                   {inactive.map(emp => (
-                    <div key={emp.id} style={{ display: 'grid', gridTemplateColumns: '1fr 120px 140px 90px 80px 80px', padding: '10px 16px', borderBottom: '1px solid var(--border)', alignItems: 'center', opacity: 0.6 }}>
+                    <div key={emp.id} style={{ display: 'grid', gridTemplateColumns: '1fr 130px 130px 90px 80px 80px', padding: '10px 16px', borderBottom: '1px solid var(--border)', alignItems: 'center', opacity: 0.6 }}>
                       <div>
                         <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{emp.full_name}</div>
                         <div style={{ fontSize: 11, color: 'var(--text3)' }}>уволен {fmtDate(emp.fire_date)}</div>
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--text2)' }}>{emp.inn || '—'}</div>
+                      <div style={{ fontSize: 12, color: 'var(--text2)' }}>{emp.department || '—'}</div>
                       <div style={{ fontSize: 12, color: 'var(--text2)' }}>{emp.position || '—'}</div>
                       <div style={{ textAlign: 'right', fontSize: 13 }}>{fmt(emp.salary)}</div>
                       <div></div>
@@ -786,15 +788,20 @@ export default function Salary() {
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
-                  <label style={LBL}>ИНН</label>
-                  <input value={empForm.inn} onChange={e => setEmpForm(f => ({ ...f, inn: e.target.value }))}
-                    placeholder="1234567890" style={INP} />
+                  <label style={LBL}>Подразделение</label>
+                  <input value={empForm.department} onChange={e => setEmpForm(f => ({ ...f, department: e.target.value }))}
+                    placeholder="Офис, Склад, Магазин…" style={INP} />
                 </div>
                 <div>
                   <label style={LBL}>Должность</label>
                   <input value={empForm.position} onChange={e => setEmpForm(f => ({ ...f, position: e.target.value }))}
                     placeholder="Бухгалтер" style={INP} />
                 </div>
+              </div>
+              <div>
+                <label style={LBL}>ИНН</label>
+                <input value={empForm.inn} onChange={e => setEmpForm(f => ({ ...f, inn: e.target.value }))}
+                  placeholder="1234567890" style={INP} />
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
                 <div>
@@ -885,6 +892,7 @@ export default function Salary() {
                   <div>
                     <div style={{ fontWeight: 600, fontSize: 13 }}>{e.employee_name}</div>
                     <div style={{ fontSize: 11, color: 'var(--text3)' }}>
+                      {e.department && <span style={{ marginRight: 6, background: '#e8f0fe', color: '#1a56db', padding: '1px 6px', borderRadius: 10, fontWeight: 600 }}>{e.department}</span>}
                       {e.position || ''}
                       {e.bonus > 0 && <span style={{ marginLeft: 6, color: 'var(--success)', fontWeight: 700 }}>+{fmt(e.bonus)}</span>}
                       {e.deduction > 0 && <span style={{ marginLeft: 6, color: 'var(--error)', fontWeight: 700 }}>−{fmt(e.deduction)}</span>}

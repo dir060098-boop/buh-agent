@@ -54,6 +54,7 @@ class EmployeeCreate(BaseModel):
     full_name:  str
     inn:        Optional[str] = None
     position:   Optional[str] = None
+    department: Optional[str] = None
     salary:     float
     hire_date:  str            # YYYY-MM-DD
     is_foreign: bool = False
@@ -62,6 +63,7 @@ class EmployeeUpdate(BaseModel):
     full_name:  Optional[str]   = None
     inn:        Optional[str]   = None
     position:   Optional[str]   = None
+    department: Optional[str]   = None
     salary:     Optional[float] = None
     is_foreign: Optional[bool]  = None
 
@@ -106,6 +108,7 @@ def _calc(emp: models.Employee, bonus: float = 0.0, deduction: float = 0.0) -> d
         "employee_id":    emp.id,
         "employee_name":  emp.full_name,
         "position":       emp.position or "",
+        "department":     emp.department or "",
         "is_foreign":     emp.is_foreign,
         "gross":          gross,
         "bonus":          round(bonus, 2),
@@ -125,6 +128,7 @@ def _emp_dict(emp: models.Employee) -> dict:
         "full_name":  emp.full_name,
         "inn":        emp.inn,
         "position":   emp.position,
+        "department": emp.department,
         "salary":     emp.salary,
         "hire_date":  emp.hire_date.strftime("%Y-%m-%d") if emp.hire_date else None,
         "fire_date":  emp.fire_date.strftime("%Y-%m-%d") if emp.fire_date else None,
@@ -165,6 +169,7 @@ def _run_detail(run: models.PayrollRun) -> dict:
             "employee_id":   e.employee_id,
             "employee_name": e.employee_name,
             "position":      e.position,
+            "department":    e.department or "",
             "is_foreign":    e.is_foreign,
             "gross":         e.gross,
             "bonus":         e.bonus or 0,
@@ -233,6 +238,7 @@ def add_employee(company_id: int, data: EmployeeCreate,
         full_name  = data.full_name,
         inn        = data.inn,
         position   = data.position,
+        department = data.department,
         salary     = data.salary,
         hire_date  = hire_date,
         is_foreign = data.is_foreign,
@@ -401,6 +407,7 @@ def run_payroll(company_id: int, data: RunPayrollRequest,
             employee_id    = r["employee_id"],
             employee_name  = r["employee_name"],
             position       = r["position"],
+            department     = r["department"],
             is_foreign     = r["is_foreign"],
             bonus          = r["bonus"],
             deduction      = r["deduction"],
@@ -494,6 +501,7 @@ def update_employee(company_id: int, emp_id: int, data: EmployeeUpdate,
     if data.full_name  is not None: emp.full_name  = data.full_name
     if data.inn        is not None: emp.inn        = data.inn
     if data.position   is not None: emp.position   = data.position
+    if data.department is not None: emp.department = data.department
     if data.salary     is not None: emp.salary     = data.salary
     if data.is_foreign is not None: emp.is_foreign = data.is_foreign
     db.commit()
@@ -756,33 +764,93 @@ def export_run_excel(company_id: int, run_id: int,
         ws.column_dimensions[get_column_letter(col)].width = width
     ws.row_dimensions[4].height = 28
 
-    # ── Строки ─────────────────────────────────────────────────────────────
+    # ── Группировка по подразделениям ─────────────────────────────────────
     NUM_FMT = "#,##0.00"
     gnpfr_total_run = run.gnpfr_total or 0
-    for idx, e in enumerate(run.entries, 1):
-        r      = 4 + idx
-        gnpfr  = e.gnpfr_employee or 0
-        values = [idx, e.employee_name, e.position or "",
-                  e.gross, e.bonus or 0, e.deduction or 0,
-                  e.income_tax, e.sf_employee, gnpfr,
-                  e.sf_employer, e.net]
+
+    # Собираем группы: { dept_name: [entries] }
+    from collections import defaultdict
+    groups = defaultdict(list)
+    no_dept_key = "— Без подразделения —"
+    for e in run.entries:
+        key = (e.department or "").strip() or no_dept_key
+        groups[key].append(e)
+
+    has_departments = any(k != no_dept_key for k in groups)
+
+    fill_dept = PatternFill(start_color="BDD7EE", end_color="BDD7EE", fill_type="solid")  # голубой для подразделения
+    fill_tot  = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")  # зелёный для итого
+
+    cur_row = 5
+    emp_num = 1
+
+    def _write_num_row(ws, r, num, entry, NUM_FMT, NUM_COLS, indent=False):
+        """Записать одну строку сотрудника."""
+        gnpfr = entry.gnpfr_employee or 0
+        values = [num,
+                  ("  " if indent else "") + entry.employee_name,
+                  entry.position or "",
+                  entry.gross, entry.bonus or 0, entry.deduction or 0,
+                  entry.income_tax, entry.sf_employee, gnpfr,
+                  entry.sf_employer, entry.net]
         for col, val in enumerate(values, 1):
             cell = ws.cell(row=r, column=col, value=val)
             if col >= 4:
                 cell.number_format = NUM_FMT
                 cell.alignment     = Alignment(horizontal="right")
             else:
-                cell.alignment = Alignment(
-                    horizontal="center" if col == 1 else "left"
-                )
+                cell.alignment = Alignment(horizontal="center" if col == 1 else "left")
 
-    # ── Итого ──────────────────────────────────────────────────────────────
-    tr = 4 + len(run.entries) + 1
+    def _sum_entries(entries):
+        """Суммирует строки для итоговой строки подразделения."""
+        return [
+            sum(e.gross         for e in entries),
+            sum(e.bonus or 0    for e in entries),
+            sum(e.deduction or 0 for e in entries),
+            sum(e.income_tax    for e in entries),
+            sum(e.sf_employee   for e in entries),
+            sum(e.gnpfr_employee or 0 for e in entries),
+            sum(e.sf_employer   for e in entries),
+            sum(e.net           for e in entries),
+        ]
+
+    for dept_name, entries in sorted(groups.items()):
+        if has_departments:
+            # Шапка подразделения
+            ws.merge_cells(f"A{cur_row}:{get_column_letter(NUM_COLS)}{cur_row}")
+            ws[f"A{cur_row}"] = dept_name
+            ws[f"A{cur_row}"].font      = Font(bold=True, size=11, color="1F3864")
+            ws[f"A{cur_row}"].fill      = fill_dept
+            ws[f"A{cur_row}"].alignment = Alignment(horizontal="left", vertical="center")
+            ws.row_dimensions[cur_row].height = 18
+            cur_row += 1
+
+        for e in entries:
+            _write_num_row(ws, cur_row, emp_num, e, NUM_FMT, NUM_COLS,
+                           indent=has_departments)
+            emp_num  += 1
+            cur_row  += 1
+
+        # Итого по подразделению (только если их несколько)
+        if has_departments and len(entries) > 1:
+            dept_sums = _sum_entries(entries)
+            ws.merge_cells(f"A{cur_row}:C{cur_row}")
+            ws[f"A{cur_row}"]      = f"Итого: {dept_name}"
+            ws[f"A{cur_row}"].font = Font(bold=True, italic=True, size=10)
+            ws[f"A{cur_row}"].fill = fill_dept
+            for col, val in zip(range(4, NUM_COLS + 1), dept_sums):
+                cell               = ws.cell(row=cur_row, column=col, value=val)
+                cell.font          = Font(bold=True)
+                cell.number_format = NUM_FMT
+                cell.alignment     = Alignment(horizontal="right")
+                cell.fill          = fill_dept
+            cur_row += 1
+
+    # ── Итого по всем ──────────────────────────────────────────────────────
+    tr = cur_row
     ws.merge_cells(f"A{tr}:C{tr}")
     ws[f"A{tr}"]      = "ИТОГО"
-    ws[f"A{tr}"].font = Font(bold=True)
-    fill_tot = PatternFill(start_color="E2EFDA", end_color="E2EFDA",
-                           fill_type="solid")
+    ws[f"A{tr}"].font = Font(bold=True, size=11)
     totals = [run.gross_total, 0, 0,
               run.income_tax_total, run.sf_employee_total, gnpfr_total_run,
               run.sf_employer_total, run.net_total]
@@ -792,6 +860,7 @@ def export_run_excel(company_id: int, run_id: int,
         cell.number_format = NUM_FMT
         cell.alignment     = Alignment(horizontal="right")
         cell.fill          = fill_tot
+    ws[f"A{tr}"].fill = fill_tot
 
     # ── Примечания ─────────────────────────────────────────────────────────
     note_row = tr + 1

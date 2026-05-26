@@ -131,6 +131,7 @@ class Employee(Base):
     full_name = Column(String)
     inn = Column(String)
     position = Column(String)
+    department = Column(String, nullable=True)   # Подразделение
     salary = Column(Float)
     hire_date = Column(DateTime)
     fire_date = Column(DateTime, nullable=True)
@@ -179,6 +180,7 @@ class PayrollRunEntry(Base):
     deduction     = Column(Float, default=0)   # удержание (не влияет на налог)
     gross         = Column(Float)              # оклад
     taxable       = Column(Float)              # оклад + премия (налоговая база)
+    department      = Column(String, nullable=True)  # снимок подразделения
     income_tax      = Column(Float)
     sf_employee     = Column(Float)            # ПФР 8%
     gnpfr_employee  = Column(Float, default=0) # ГНПФР 2%
