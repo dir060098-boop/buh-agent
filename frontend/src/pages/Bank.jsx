@@ -29,12 +29,13 @@ export default function Bank() {
   const [company, setCompany]   = useState(null)
   const [data, setData]         = useState({ accounts: [], transactions: [], summary: {} })
   const [loading, setLoading]   = useState(true)
-  const [activeAcc, setActiveAcc] = useState(null)   // null = все счета
-  const [dirFilter, setDirFilter] = useState('')
+  const [activeAcc, setActiveAcc]   = useState(null)   // null = все счета
+  const [dirFilter, setDirFilter]   = useState('')
   const [statusFilter, setStatusFilter] = useState('')
-  const [search, setSearch]     = useState('')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo]     = useState('')
+  const [currencyFilter, setCurrencyFilter] = useState('')
+  const [search, setSearch]         = useState('')
+  const [dateFrom, setDateFrom]     = useState('')
+  const [dateTo, setDateTo]         = useState('')
 
   const [showAddTx, setShowAddTx]     = useState(false)
   const [showAddAcc, setShowAddAcc]   = useState(false)
@@ -56,17 +57,18 @@ export default function Bank() {
   const load = useCallback(() => {
     setLoading(true)
     const params = {}
-    if (activeAcc)    params.account_id = activeAcc
-    if (dirFilter)    params.direction = dirFilter
-    if (statusFilter) params.status = statusFilter
-    if (search)       params.search = search
-    if (dateFrom)     params.date_from = dateFrom
-    if (dateTo)       params.date_to = dateTo
+    if (activeAcc)       params.account_id = activeAcc
+    if (dirFilter)       params.direction = dirFilter
+    if (statusFilter)    params.status = statusFilter
+    if (currencyFilter)  params.currency = currencyFilter
+    if (search)          params.search = search
+    if (dateFrom)        params.date_from = dateFrom
+    if (dateTo)          params.date_to = dateTo
     bank.transactions(companyId, params)
       .then(r => setData(r.data))
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [companyId, activeAcc, dirFilter, statusFilter, search, dateFrom, dateTo])
+  }, [companyId, activeAcc, dirFilter, statusFilter, currencyFilter, search, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -122,6 +124,20 @@ export default function Bank() {
       danger: true,
       onConfirm: async () => {
         await bank.deleteTransaction(id)
+        load()
+      }
+    })
+  }
+
+  // ── Очистить все транзакции счёта ───────────────────────────────────────
+  function handleClearTransactions(accId, accName) {
+    setConfirmState({
+      title: 'Удалить все операции?',
+      message: `Все операции счёта «${accName}» будут удалены без возможности восстановления.`,
+      confirmLabel: 'Удалить все',
+      danger: true,
+      onConfirm: async () => {
+        await bank.clearTransactions(companyId, accId)
         load()
       }
     })
@@ -207,8 +223,18 @@ export default function Bank() {
             {accounts.map(acc => (
               <div key={acc.id} onClick={() => setActiveAcc(acc.id === activeAcc ? null : acc.id)}
                 style={{ background: activeAcc === acc.id ? 'var(--accent-light)' : 'var(--surface)', border: `2px solid ${activeAcc === acc.id ? 'var(--accent)' : 'var(--border)'}`, borderRadius: 'var(--radius)', padding: '14px 18px', cursor: 'pointer', minWidth: 160, position: 'relative' }}>
-                <button onClick={e => { e.stopPropagation(); handleDeleteAccount(acc.id, acc.bank_name || (acc.is_cash ? 'Касса' : 'Счёт')) }}
-                  style={{ position: 'absolute', top: 8, right: 8, background: 'none', border: 'none', color: 'var(--text4)', fontSize: 14, cursor: 'pointer', padding: 2 }}>×</button>
+                <div style={{ position: 'absolute', top: 6, right: 6, display: 'flex', gap: 2 }}>
+                  {acc.tx_count > 0 && (
+                    <button
+                      onClick={e => { e.stopPropagation(); handleClearTransactions(acc.id, acc.bank_name || (acc.is_cash ? 'Касса' : 'Счёт')) }}
+                      title="Удалить все операции"
+                      style={{ background: 'none', border: 'none', color: 'var(--error)', fontSize: 11, cursor: 'pointer', padding: '2px 4px', borderRadius: 4, lineHeight: 1 }}>
+                      🗑
+                    </button>
+                  )}
+                  <button onClick={e => { e.stopPropagation(); handleDeleteAccount(acc.id, acc.bank_name || (acc.is_cash ? 'Касса' : 'Счёт')) }}
+                    style={{ background: 'none', border: 'none', color: 'var(--text4)', fontSize: 14, cursor: 'pointer', padding: 2, lineHeight: 1 }}>×</button>
+                </div>
                 <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', marginBottom: 2 }}>
                   {acc.is_cash ? '💵 КАССА' : '🏦 ' + (acc.bank_name || 'БАНК')}
                 </div>
@@ -255,6 +281,13 @@ export default function Bank() {
               <option value="in">Приход</option>
               <option value="out">Расход</option>
             </select>
+            <select value={currencyFilter} onChange={e => setCurrencyFilter(e.target.value)} style={{ ...SEL }}>
+              <option value="">Все валюты</option>
+              <option value="KGS">KGS</option>
+              <option value="USD">USD</option>
+              <option value="EUR">EUR</option>
+              <option value="RUB">RUB</option>
+            </select>
             <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ ...SEL }}>
               <option value="">Все статусы</option>
               <option value="unmatched">Не сверено</option>
@@ -263,8 +296,8 @@ export default function Bank() {
             <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ ...SEL }} />
             <span style={{ color: 'var(--text3)', fontSize: 12 }}>—</span>
             <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ ...SEL }} />
-            {(search || dirFilter || statusFilter || dateFrom || dateTo) && (
-              <button onClick={() => { setSearch(''); setDirFilter(''); setStatusFilter(''); setDateFrom(''); setDateTo('') }}
+            {(search || dirFilter || currencyFilter || statusFilter || dateFrom || dateTo) && (
+              <button onClick={() => { setSearch(''); setDirFilter(''); setCurrencyFilter(''); setStatusFilter(''); setDateFrom(''); setDateTo('') }}
                 style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '7px 10px', color: 'var(--text3)', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
                 Сбросить
               </button>

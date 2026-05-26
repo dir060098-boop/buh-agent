@@ -94,12 +94,14 @@ export const bank = {
   addTransaction:    (companyId, data)      => api.post(`/api/bank/${companyId}/transactions`, data),
   deleteTransaction: (txId)                 => api.delete(`/api/bank/transactions/${txId}`),
   matchTransaction:  (txId, docId)          => api.patch(`/api/bank/transactions/${txId}/match`, null, { params: { doc_id: docId } }),
-  importStatement:   (companyId, accountId, file) => {
+  importStatement:    (companyId, accountId, file) => {
     const fd = new FormData()
     fd.append('account_id', accountId)
     fd.append('file', file)
     return api.post(`/api/bank/${companyId}/import`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
   },
+  clearTransactions: (companyId, accountId) =>
+    api.delete(`/api/bank/${companyId}/accounts/${accountId}/transactions`),
 }
 
 export const salary = {
