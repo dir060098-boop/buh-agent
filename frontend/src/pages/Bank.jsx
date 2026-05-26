@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { bank, companies } from '../api/client'
 import ConfirmModal from '../components/ConfirmModal'
@@ -36,12 +36,18 @@ export default function Bank() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo]     = useState('')
 
-  const [showAddTx, setShowAddTx]   = useState(false)
-  const [showAddAcc, setShowAddAcc] = useState(false)
-  const [txForm, setTxForm]         = useState(EMPTY_TX)
-  const [accForm, setAccForm]       = useState(EMPTY_ACC)
-  const [saving, setSaving]         = useState(false)
+  const [showAddTx, setShowAddTx]     = useState(false)
+  const [showAddAcc, setShowAddAcc]   = useState(false)
+  const [showImport, setShowImport]   = useState(false)
+  const [txForm, setTxForm]           = useState(EMPTY_TX)
+  const [accForm, setAccForm]         = useState(EMPTY_ACC)
+  const [importAccId, setImportAccId] = useState('')
+  const [importFile, setImportFile]   = useState(null)
+  const [importResult, setImportResult] = useState(null)
+  const [saving, setSaving]           = useState(false)
+  const [importing, setImporting]     = useState(false)
   const [confirmState, setConfirmState] = useState(null)
+  const fileInputRef = useRef(null)
 
   useEffect(() => {
     companies.get(companyId).then(r => setCompany(r.data)).catch(() => {})
@@ -121,6 +127,30 @@ export default function Bank() {
     })
   }
 
+  // ── Импорт выписки ──────────────────────────────────────────────────────
+  async function handleImport() {
+    if (!importAccId || !importFile) return
+    setImporting(true)
+    setImportResult(null)
+    try {
+      const r = await bank.importStatement(companyId, importAccId, importFile)
+      setImportResult(r.data)
+      load()
+    } catch (e) {
+      const msg = e?.response?.data?.detail || 'Ошибка при импорте'
+      setImportResult({ error: msg })
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  function openImportModal() {
+    setImportAccId(activeAcc || accounts[0]?.id || '')
+    setImportFile(null)
+    setImportResult(null)
+    setShowImport(true)
+  }
+
   const { accounts, transactions, summary } = data
   const accMap = Object.fromEntries(accounts.map(a => [a.id, a]))
   const totalBalance = accounts.reduce((s, a) => s + (a.balance || 0), 0)
@@ -137,6 +167,11 @@ export default function Bank() {
           <button onClick={() => { setShowAddAcc(true); setAccForm(EMPTY_ACC) }}
             style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--text)' }}>
             + Счёт
+          </button>
+          <button onClick={openImportModal}
+            disabled={accounts.length === 0}
+            style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: accounts.length ? 'pointer' : 'not-allowed', fontFamily: 'inherit', color: 'var(--text)', opacity: accounts.length ? 1 : 0.5 }}>
+            📥 Загрузить выписку
           </button>
           <button onClick={() => { setShowAddTx(true); setTxForm({ ...EMPTY_TX, account_id: activeAcc || accounts[0]?.id || '' }) }}
             disabled={accounts.length === 0}
@@ -435,6 +470,119 @@ export default function Bank() {
 
       {/* Модал подтверждения */}
       <ConfirmModal state={confirmState} onClose={() => setConfirmState(null)} />
+
+      {/* ── Модал: импорт выписки ──────────────────────────────────────── */}
+      {showImport && (
+        <div onClick={() => { if (!importing) setShowImport(false) }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: 'var(--surface)', borderRadius: 'var(--radius-lg)', width: '100%', maxWidth: 460, boxShadow: 'var(--shadow-lg)', overflow: 'hidden' }}>
+
+            {/* Шапка */}
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontWeight: 800, fontSize: 15 }}>📥 Загрузить выписку</div>
+              <button onClick={() => setShowImport(false)}
+                style={{ background: 'none', border: 'none', fontSize: 20, color: 'var(--text3)', cursor: 'pointer', lineHeight: 1 }}>×</button>
+            </div>
+
+            {/* Тело */}
+            <div style={{ padding: '18px 20px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+              {/* Выбор счёта */}
+              <div>
+                <label style={LBL}>Банковский счёт *</label>
+                <select value={importAccId} onChange={e => setImportAccId(+e.target.value)} style={{ ...INP, width: '100%' }}>
+                  <option value="">Выберите счёт</option>
+                  {accounts.filter(a => !a.is_cash).map(a => (
+                    <option key={a.id} value={a.id}>
+                      🏦 {a.bank_name} {a.account_number ? `(…${a.account_number.slice(-6)})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Загрузка файла */}
+              <div>
+                <label style={LBL}>Файл выписки (XLSX или PDF) *</label>
+                <div
+                  onClick={() => fileInputRef.current?.click()}
+                  style={{
+                    border: `2px dashed ${importFile ? 'var(--accent)' : 'var(--border)'}`,
+                    borderRadius: 'var(--radius)',
+                    padding: '20px 16px',
+                    textAlign: 'center',
+                    cursor: 'pointer',
+                    background: importFile ? 'var(--accent-light)' : 'var(--surface2)',
+                    transition: 'border-color 0.15s, background 0.15s',
+                  }}>
+                  {importFile ? (
+                    <>
+                      <div style={{ fontSize: 22, marginBottom: 4 }}>📄</div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>{importFile.name}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
+                        {(importFile.size / 1024).toFixed(0)} KB — нажмите, чтобы изменить
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ fontSize: 28, marginBottom: 6 }}>☁️</div>
+                      <div style={{ fontSize: 13, color: 'var(--text2)', fontWeight: 600 }}>Нажмите для выбора файла</div>
+                      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 3 }}>XLSX — Оптима Банк · PDF — Демир Банк</div>
+                    </>
+                  )}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".xlsx,.xls,.pdf"
+                    style={{ display: 'none' }}
+                    onChange={e => { setImportFile(e.target.files?.[0] || null); setImportResult(null) }}
+                  />
+                </div>
+              </div>
+
+              {/* Результат */}
+              {importResult && (
+                importResult.error ? (
+                  <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 'var(--radius-sm)', padding: '10px 14px', fontSize: 13, color: '#991b1b' }}>
+                    ❌ {importResult.error}
+                  </div>
+                ) : (
+                  <div style={{ background: 'var(--success-light, #d1fae5)', border: '1px solid var(--success)', borderRadius: 'var(--radius-sm)', padding: '10px 14px', fontSize: 13 }}>
+                    <div style={{ fontWeight: 700, color: 'var(--success)', marginBottom: 4 }}>✅ Импорт завершён</div>
+                    <div style={{ color: 'var(--text2)', lineHeight: 1.6 }}>
+                      Загружено: <b>{importResult.imported}</b> операций
+                      {importResult.skipped > 0 && <> · Пропущено (дубли): <b>{importResult.skipped}</b></>}
+                    </div>
+                  </div>
+                )
+              )}
+            </div>
+
+            {/* Футер */}
+            <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
+              {importResult?.imported >= 0 ? (
+                <button onClick={() => setShowImport(false)}
+                  style={{ flex: 1, background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', padding: 12, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                  Готово
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={handleImport}
+                    disabled={!importAccId || !importFile || importing}
+                    style={{ flex: 2, background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', padding: 12, fontSize: 14, fontWeight: 700, cursor: (importAccId && importFile && !importing) ? 'pointer' : 'not-allowed', fontFamily: 'inherit', opacity: (importAccId && importFile && !importing) ? 1 : 0.5 }}>
+                    {importing ? '⏳ Обработка...' : '📥 Загрузить'}
+                  </button>
+                  <button onClick={() => setShowImport(false)}
+                    style={{ flex: 1, background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: 12, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--text2)' }}>
+                    Отмена
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
