@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { documents, companies } from '../api/client'
+import { documents, scanner, posting, companies } from '../api/client'
 import ConfirmModal from '../components/ConfirmModal'
 
 const DOC_TYPES = [
@@ -30,13 +30,28 @@ const STATUS_STYLE = {
   needs_review: { bg: '#e8f0fe',              color: '#1a56db',        label: 'На проверке' },
 }
 
+// Типы документов — нужны только для цветных бейджиков
+const TYPE_COLOR = {
+  invoice:       '#7c3aed',
+  act:           '#0369a1',
+  esf:           '#047857',
+  ttn:           '#b45309',
+  contract:      '#6b21a8',
+  receipt:       '#0284c7',
+  payment_order: '#065f46',
+  bank_statement:'#1e40af',
+  payroll:       '#7c2d12',
+  other:         '#374151',
+}
+
 function fmt(n, cur = 'KGS') {
   if (!n && n !== 0) return '—'
   return n.toLocaleString('ru-RU', { minimumFractionDigits: 0 }) + ' ' + cur
 }
 function fmtDate(s) {
   if (!s) return '—'
-  const [y, m, d] = s.split('-')
+  const part = s.slice(0, 10)
+  const [y, m, d] = part.split('-')
   return `${d}.${m}.${y}`
 }
 
@@ -55,18 +70,20 @@ export default function Documents() {
   const { companyId } = useParams()
   const navigate = useNavigate()
 
-  const [company, setCompany] = useState(null)
-  const [docs, setDocs] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [company, setCompany]   = useState(null)
+  const [docs, setDocs]         = useState([])
+  const [loading, setLoading]   = useState(true)
   const [selected, setSelected] = useState(null)
   const [deleting, setDeleting] = useState(null)
+  const [posting_doc, setPostingDoc] = useState(false)
+  const [showPreview, setShowPreview] = useState(false)
   const [confirmState, setConfirmState] = useState(null)
 
-  const [search, setSearch] = useState('')
-  const [docType, setDocType] = useState('')
+  const [search, setSearch]           = useState('')
+  const [docType, setDocType]         = useState('')
   const [postingStatus, setPostingStatus] = useState('')
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo, setDateTo]   = useState('')
+  const [dateFrom, setDateFrom]       = useState('')
+  const [dateTo, setDateTo]           = useState('')
 
   useEffect(() => {
     companies.get(companyId).then(r => setCompany(r.data)).catch(() => {})
@@ -75,11 +92,11 @@ export default function Documents() {
   const load = useCallback(() => {
     setLoading(true)
     const params = {}
-    if (search)        params.search = search
-    if (docType)       params.doc_type = docType
+    if (search)        params.search         = search
+    if (docType)       params.doc_type       = docType
     if (postingStatus) params.posting_status = postingStatus
-    if (dateFrom)      params.date_from = dateFrom
-    if (dateTo)        params.date_to = dateTo
+    if (dateFrom)      params.date_from      = dateFrom
+    if (dateTo)        params.date_to        = dateTo
     documents.list(companyId, params)
       .then(r => setDocs(r.data))
       .catch(() => setDocs([]))
@@ -103,9 +120,30 @@ export default function Documents() {
     })
   }
 
-  const total   = docs.length
-  const pending = docs.filter(d => d.posting_status === 'pending').length
-  const posted  = docs.filter(d => d.posting_status === 'posted').length
+  async function handlePostDoc(doc) {
+    setPostingDoc(true)
+    try {
+      await posting.auto(doc.id)
+      // Обновляем документ в списке
+      const updated = await documents.getById(doc.id)
+      setDocs(d => d.map(x => x.id === doc.id ? updated.data : x))
+      setSelected(updated.data)
+    } catch (err) {
+      alert(err.response?.data?.detail || 'Ошибка разноски')
+    } finally {
+      setPostingDoc(false)
+    }
+  }
+
+  // Статистика
+  const total       = docs.length
+  const pending     = docs.filter(d => d.posting_status === 'pending').length
+  const needs_rev   = docs.filter(d => d.posting_status === 'needs_review').length
+  const posted      = docs.filter(d => d.posting_status === 'posted').length
+
+  // Определяем тип файла для превью
+  const previewUrl  = selected?.file_path ? scanner.fileUrl(selected.file_path) : null
+  const isPdf       = selected?.file_path?.toLowerCase().endsWith('.pdf')
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
@@ -131,11 +169,19 @@ export default function Documents() {
         {/* Счётчики */}
         <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
           {[
-            { label: 'Всего', val: total,   color: 'var(--text)' },
-            { label: 'Ожидают разноски', val: pending, color: 'var(--warn)' },
-            { label: 'Разнесено', val: posted,  color: 'var(--success)' },
+            { label: 'Всего',         val: total,     color: 'var(--text)',    filter: '' },
+            { label: 'Ожидают',       val: pending,   color: 'var(--warn)',    filter: 'pending' },
+            { label: 'На проверке',   val: needs_rev, color: '#1a56db',        filter: 'needs_review' },
+            { label: 'Разнесено',     val: posted,    color: 'var(--success)', filter: 'posted' },
           ].map(s => (
-            <div key={s.label} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '12px 18px', boxShadow: 'var(--shadow-sm)', minWidth: 110 }}>
+            <div key={s.label}
+              onClick={() => setPostingStatus(postingStatus === s.filter ? '' : s.filter)}
+              style={{
+                background: postingStatus === s.filter ? 'var(--surface2)' : 'var(--surface)',
+                border: `1px solid ${postingStatus === s.filter ? 'var(--accent)' : 'var(--border)'}`,
+                borderRadius: 'var(--radius)', padding: '12px 18px',
+                boxShadow: 'var(--shadow-sm)', minWidth: 110, cursor: 'pointer',
+              }}>
               <div style={{ fontSize: 22, fontWeight: 800, color: s.color }}>{s.val}</div>
               <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{s.label}</div>
             </div>
@@ -166,8 +212,7 @@ export default function Documents() {
 
         {/* Таблица */}
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
-          {/* Заголовок */}
-          <div style={{ display: 'grid', gridTemplateColumns: '90px 110px 1fr 1fr 120px 110px 80px', gap: 8, padding: '10px 16px', borderBottom: '2px solid var(--border)', background: 'var(--surface2)', fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '90px 120px 1fr 1fr 120px 110px 64px', gap: 8, padding: '10px 16px', borderBottom: '2px solid var(--border)', background: 'var(--surface2)', fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
             <div>Дата</div>
             <div>Тип</div>
             <div>Контрагент</div>
@@ -186,15 +231,20 @@ export default function Documents() {
                 : 'Документов пока нет — загрузите первый через Сканер'}
             </div>
           ) : docs.map(doc => {
-            const st = STATUS_STYLE[doc.posting_status] || STATUS_STYLE.pending
+            const st    = STATUS_STYLE[doc.posting_status] || STATUS_STYLE.pending
+            const tColor = TYPE_COLOR[doc.doc_type] || '#374151'
             return (
               <div key={doc.id}
-                onClick={() => setSelected(doc)}
-                style={{ display: 'grid', gridTemplateColumns: '90px 110px 1fr 1fr 120px 110px 80px', gap: 8, padding: '11px 16px', borderBottom: '1px solid var(--border)', cursor: 'pointer', transition: 'background 0.1s' }}
+                onClick={() => { setSelected(doc); setShowPreview(false) }}
+                style={{ display: 'grid', gridTemplateColumns: '90px 120px 1fr 1fr 120px 110px 64px', gap: 8, padding: '11px 16px', borderBottom: '1px solid var(--border)', cursor: 'pointer', transition: 'background 0.1s' }}
                 onMouseEnter={e => e.currentTarget.style.background = 'var(--surface2)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                 <div style={{ fontSize: 12, color: 'var(--text2)' }}>{fmtDate(doc.doc_date)}</div>
-                <div style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600 }}>{doc.doc_type_label}</div>
+                <div>
+                  <span style={{ fontSize: 11, color: '#fff', background: tColor, fontWeight: 700, padding: '2px 7px', borderRadius: 10, whiteSpace: 'nowrap' }}>
+                    {doc.doc_type_label}
+                  </span>
+                </div>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.counterparty || '—'}</div>
                   {doc.doc_number && <div style={{ fontSize: 11, color: 'var(--text3)' }}>№{doc.doc_number}</div>}
@@ -206,13 +256,12 @@ export default function Documents() {
                 </div>
                 <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
                   {doc.file_path && (
-                    <a href={`https://buh-agent-production.up.railway.app/api/scanner/file?path=${doc.file_path}`}
-                      target="_blank" rel="noreferrer"
-                      onClick={e => e.stopPropagation()}
-                      style={{ fontSize: 11, color: 'var(--accent)', textDecoration: 'none', padding: '3px 6px', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)' }}
-                      title="Открыть файл">
+                    <button
+                      onClick={e => { e.stopPropagation(); setSelected(doc); setShowPreview(true) }}
+                      title="Просмотр документа"
+                      style={{ fontSize: 14, background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '2px 6px', cursor: 'pointer', lineHeight: 1 }}>
                       📎
-                    </a>
+                    </button>
                   )}
                   <button onClick={e => { e.stopPropagation(); handleDelete(doc) }}
                     disabled={deleting === doc.id}
@@ -233,69 +282,135 @@ export default function Documents() {
         )}
       </div>
 
-      {/* Модал подтверждения удаления */}
       <ConfirmModal state={confirmState} onClose={() => setConfirmState(null)} />
 
-      {/* Модал детали */}
+      {/* ════════ МОДАЛ ДЕТАЛИ ════════ */}
       {selected && (
         <div onClick={() => setSelected(null)}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
           <div onClick={e => e.stopPropagation()}
-            style={{ background: 'var(--surface)', borderRadius: 'var(--radius-lg)', width: '100%', maxWidth: 520, boxShadow: 'var(--shadow-lg)', overflow: 'hidden' }}>
-            {/* Шапка модала */}
-            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--text)' }}>{selected.doc_type_label}</div>
-                <div style={{ fontSize: 12, color: 'var(--text3)' }}>
-                  {selected.doc_number ? `№${selected.doc_number} · ` : ''}{fmtDate(selected.doc_date)}
+            style={{
+              background: 'var(--surface)', borderRadius: 'var(--radius-lg)',
+              width: '100%', maxWidth: showPreview ? 900 : 520,
+              boxShadow: 'var(--shadow-lg)', overflow: 'hidden',
+              display: 'flex', flexDirection: showPreview ? 'row' : 'column',
+              maxHeight: '92vh',
+            }}>
+
+            {/* ── Превью файла (слева при showPreview) ── */}
+            {showPreview && previewUrl && (
+              <div style={{ flex: '0 0 420px', background: '#1e1e2e', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
+                {isPdf ? (
+                  <iframe
+                    src={previewUrl}
+                    title="Документ"
+                    style={{ width: '100%', height: '100%', border: 'none', minHeight: 500 }}
+                  />
+                ) : (
+                  <img
+                    src={previewUrl}
+                    alt="Документ"
+                    style={{ maxWidth: '100%', maxHeight: '80vh', objectFit: 'contain', padding: 12 }}
+                  />
+                )}
+                <a href={previewUrl} target="_blank" rel="noreferrer"
+                  style={{ position: 'absolute', bottom: 10, right: 10, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 11, padding: '4px 10px', borderRadius: 20, textDecoration: 'none' }}>
+                  ↗ Открыть
+                </a>
+              </div>
+            )}
+
+            {/* ── Правая часть (детали) ── */}
+            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+
+              {/* Шапка */}
+              <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexShrink: 0 }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{
+                      fontSize: 11, color: '#fff', fontWeight: 700, padding: '2px 8px', borderRadius: 10,
+                      background: TYPE_COLOR[selected.doc_type] || '#374151'
+                    }}>{selected.doc_type_label}</span>
+                    {(() => {
+                      const st = STATUS_STYLE[selected.posting_status] || STATUS_STYLE.pending
+                      return <span style={{ background: st.bg, color: st.color, fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20 }}>{st.label}</span>
+                    })()}
+                  </div>
+                  <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--text)', marginTop: 4 }}>
+                    {selected.doc_number ? `№${selected.doc_number}` : 'Б/н'}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text3)' }}>{fmtDate(selected.doc_date)}</div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  {selected.file_path && (
+                    <button
+                      onClick={() => setShowPreview(v => !v)}
+                      title={showPreview ? 'Скрыть документ' : 'Показать документ'}
+                      style={{ background: showPreview ? 'var(--accent)' : 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '4px 10px', fontSize: 12, cursor: 'pointer', color: showPreview ? '#fff' : 'var(--text2)', fontFamily: 'inherit' }}>
+                      {showPreview ? '📄 Скрыть' : '📄 Показать'}
+                    </button>
+                  )}
+                  <button onClick={() => setSelected(null)}
+                    style={{ background: 'none', border: 'none', fontSize: 20, color: 'var(--text3)', cursor: 'pointer', lineHeight: 1 }}>×</button>
                 </div>
               </div>
-              <button onClick={() => setSelected(null)}
-                style={{ background: 'none', border: 'none', fontSize: 20, color: 'var(--text3)', cursor: 'pointer' }}>×</button>
-            </div>
 
-            {/* Тело модала */}
-            <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {[
-                ['Контрагент', selected.counterparty],
-                ['ИНН контрагента', selected.counterparty_inn],
-                ['Сумма', fmt(selected.amount, selected.currency)],
-                ['НДС', selected.vat_amount ? fmt(selected.vat_amount, selected.currency) : '0'],
-                ['Тип операции', selected.operation_type],
-                ['Статус разноски', (STATUS_STYLE[selected.posting_status] || STATUS_STYLE.pending).label],
-                ['Дт / Кт', selected.debit_account && selected.credit_account ? `${selected.debit_account} / ${selected.credit_account}` : null],
-                ['Уверенность AI', selected.ai_confidence ? `${selected.ai_confidence}%` : null],
-              ].filter(([, v]) => v).map(([k, v]) => (
-                <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13 }}>
-                  <span style={{ color: 'var(--text3)', flexShrink: 0 }}>{k}</span>
-                  <span style={{ color: 'var(--text)', fontWeight: 600, textAlign: 'right' }}>{v}</span>
+              {/* Тело */}
+              <div style={{ padding: '14px 18px', overflowY: 'auto', flex: 1 }}>
+                {/* Поля документа */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                  {[
+                    ['Контрагент',      selected.counterparty],
+                    ['ИНН контрагента', selected.counterparty_inn],
+                    ['Сумма',           fmt(selected.amount, selected.currency)],
+                    ['НДС',             selected.vat_amount ? fmt(selected.vat_amount, selected.currency) : '0'],
+                    ['Тип операции',    selected.operation_type],
+                    ['Дт / Кт',         selected.debit_account && selected.credit_account
+                                          ? `${selected.debit_account} / ${selected.credit_account}` : null],
+                    ['Уверенность AI',  selected.ai_confidence ? `${selected.ai_confidence}%` : null],
+                  ].filter(([, v]) => v).map(([k, v]) => (
+                    <div key={k} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 13 }}>
+                      <span style={{ color: 'var(--text3)', flexShrink: 0 }}>{k}</span>
+                      <span style={{ color: 'var(--text)', fontWeight: 600, textAlign: 'right' }}>{v}</span>
+                    </div>
+                  ))}
                 </div>
-              ))}
 
-              {selected.ai_summary && (
-                <div style={{ marginTop: 6, fontSize: 12, color: 'var(--ai-text)', background: 'var(--ai-light)', padding: '8px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
-                  🤖 {selected.ai_summary}
-                </div>
-              )}
-            </div>
+                {/* AI резюме */}
+                {selected.ai_summary && (
+                  <div style={{ marginTop: 12, fontSize: 12, color: 'var(--ai-text)', background: 'var(--ai-light)', padding: '10px 12px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--ai)', lineHeight: 1.5 }}>
+                    🤖 {selected.ai_summary}
+                  </div>
+                )}
 
-            {/* Действия модала */}
-            <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
-              {selected.file_path && (
-                <a href={`https://buh-agent-production.up.railway.app/api/scanner/file?path=${selected.file_path}`}
-                  target="_blank" rel="noreferrer"
-                  style={{ flex: 1, textAlign: 'center', background: 'var(--accent)', color: '#fff', borderRadius: 'var(--radius-sm)', padding: '9px 0', fontSize: 13, fontWeight: 700, textDecoration: 'none', cursor: 'pointer' }}>
-                  📎 Открыть документ
-                </a>
-              )}
-              <button onClick={() => navigate(`/company/${companyId}/journal`)}
-                style={{ flex: 1, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '9px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--text)' }}>
-                📒 В журнал
-              </button>
-              <button onClick={() => handleDelete(selected)}
-                style={{ background: 'none', border: '1px solid var(--error)', borderRadius: 'var(--radius-sm)', padding: '9px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--error)' }}>
-                Удалить
-              </button>
+                {/* Кнопка «Разнести» для ожидающих */}
+                {(selected.posting_status === 'pending' || selected.posting_status === 'needs_review') && (
+                  <button
+                    onClick={() => handlePostDoc(selected)}
+                    disabled={posting_doc}
+                    style={{ marginTop: 14, width: '100%', background: posting_doc ? 'var(--surface2)' : '#7c3aed', color: posting_doc ? 'var(--text3)' : '#fff', border: 'none', borderRadius: 'var(--radius-sm)', padding: '10px 0', fontSize: 13, fontWeight: 700, cursor: posting_doc ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
+                    {posting_doc ? 'Разносим...' : '⚡ Разнести в журнал (AI)'}
+                  </button>
+                )}
+              </div>
+
+              {/* Футер */}
+              <div style={{ padding: '12px 18px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8, flexShrink: 0 }}>
+                {previewUrl && (
+                  <a href={previewUrl} target="_blank" rel="noreferrer"
+                    style={{ flex: 1, textAlign: 'center', background: 'var(--accent)', color: '#fff', borderRadius: 'var(--radius-sm)', padding: '9px 0', fontSize: 13, fontWeight: 700, textDecoration: 'none' }}>
+                    📎 Открыть файл
+                  </a>
+                )}
+                <button onClick={() => navigate(`/company/${companyId}/journal`)}
+                  style={{ flex: 1, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '9px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--text)' }}>
+                  📒 В журнал
+                </button>
+                <button onClick={() => handleDelete(selected)}
+                  style={{ background: 'none', border: '1px solid var(--error)', borderRadius: 'var(--radius-sm)', padding: '9px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--error)' }}>
+                  Удалить
+                </button>
+              </div>
             </div>
           </div>
         </div>
