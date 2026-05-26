@@ -842,12 +842,25 @@ export default function Salary() {
             style={{ background: 'var(--surface)', borderRadius: 'var(--radius-lg)', width: '100%', maxWidth: 640, boxShadow: 'var(--shadow-lg)', overflow: 'hidden', maxHeight: '90vh', display: 'flex', flexDirection: 'column' }}>
             {/* Шапка */}
             <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
-              <div>
-                <div style={{ fontWeight: 800, fontSize: 15 }}>Расчёт за {MONTHS[selectedRun.month]} {selectedRun.year}</div>
-                <div style={{ fontSize: 12, color: 'var(--text3)' }}>
-                  {selectedRun.entries?.length || 0} сотрудников · к выдаче {fmt(selectedRun.net_total)} KGS
-                </div>
-              </div>
+              {(() => {
+                const advance   = selectedRun.advance_total || 0
+                const remaining = Math.max(0, (selectedRun.net_total || 0) - advance)
+                return (
+                  <div>
+                    <div style={{ fontWeight: 800, fontSize: 15 }}>Расчёт за {MONTHS[selectedRun.month]} {selectedRun.year}</div>
+                    <div style={{ fontSize: 12, color: 'var(--text3)' }}>
+                      {selectedRun.entries?.length || 0} сотрудников
+                      {' · '}к выдаче <strong style={{ color: 'var(--text2)' }}>{fmt(selectedRun.net_total)} KGS</strong>
+                      {advance > 0 && (
+                        <>
+                          {' · '}аванс <span style={{ color: 'var(--warn)' }}>{fmt(advance)}</span>
+                          {' · '}к доплате <strong style={{ color: 'var(--success)' }}>{fmt(remaining)} KGS</strong>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )
+              })()}
               <button onClick={() => setSelectedRun(null)} style={{ background: 'none', border: 'none', fontSize: 20, color: 'var(--text3)', cursor: 'pointer' }}>×</button>
             </div>
 
