@@ -2,14 +2,15 @@
 Модуль «Зарплата и кадры» для БухАгент КР.
 
 Налоговые ставки (Кыргызстан):
-  Резиденты:    ПН 10% | СФ работника 8% | СФ работодателя 17.5%
-  Нерезиденты:  ПН 10% | СФ = 0%
+  Резиденты:    ПН 10% | ПФР 8% (сч. 3531) | ГНПФР 2% (сч. 3534) | СФ работодателя 17.5%
+  Нерезиденты:  ПН 10% | ПФР = 0% | ГНПФР = 0%
 
 Проводки при начислении зарплаты:
   Дт 8010 / Кт 3520 — начисление зарплаты (gross)
-  Дт 3520 / Кт 3410 — удержан подоходный налог
-  Дт 3520 / Кт 3530 — удержан соцфонд (работник)
-  Дт 8020 / Кт 3530 — соцфонд работодателя
+  Дт 3520 / Кт 3410 — удержан подоходный налог (ПН)
+  Дт 3520 / Кт 3531 — удержан ПФР 8% (пенсионный фонд)
+  Дт 3520 / Кт 3534 — удержан ГНПФР 2% (накопительный пенсионный фонд)
+  Дт 8020 / Кт 3530 — соцфонд работодателя 17.5%
 """
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -32,12 +33,14 @@ router = APIRouter()
 TAX = {
     "resident": {
         "income_tax":  0.10,
-        "sf_employee": 0.08,
+        "pfr":         0.08,   # ПФР — Пенсионный фонд         (сч. 3531)
+        "gnpfr":       0.02,   # ГНПФР — накопит. пенсионный   (сч. 3534)
         "sf_employer": 0.175,
     },
     "foreign": {
         "income_tax":  0.10,
-        "sf_employee": 0.0,   # нерезиденты освобождены от обязательного СФ
+        "pfr":         0.0,    # нерезиденты освобождены от обязательного СФ
+        "gnpfr":       0.0,
         "sf_employer": 0.0,
     },
 }
@@ -91,26 +94,28 @@ class AdvanceRequest(BaseModel):
 
 # ── Хелперы ────────────────────────────────────────────────────────────────
 def _calc(emp: models.Employee, bonus: float = 0.0, deduction: float = 0.0) -> dict:
-    rates   = TAX["foreign"] if emp.is_foreign else TAX["resident"]
-    gross   = emp.salary
-    taxable = round(gross + bonus, 2)          # премия облагается налогом
-    income_tax = round(taxable * rates["income_tax"],  2)
-    sf_emp     = round(taxable * rates["sf_employee"], 2)
+    rates      = TAX["foreign"] if emp.is_foreign else TAX["resident"]
+    gross      = emp.salary
+    taxable    = round(gross + bonus, 2)         # премия облагается налогом
+    income_tax = round(taxable * rates["income_tax"], 2)
+    pfr        = round(taxable * rates["pfr"],        2)   # ПФР 8%
+    gnpfr      = round(taxable * rates["gnpfr"],      2)   # ГНПФР 2%
     sf_er      = round(taxable * rates["sf_employer"], 2)
-    net        = round(taxable - income_tax - sf_emp - deduction, 2)
+    net        = round(taxable - income_tax - pfr - gnpfr - deduction, 2)
     return {
-        "employee_id":   emp.id,
-        "employee_name": emp.full_name,
-        "position":      emp.position or "",
-        "is_foreign":    emp.is_foreign,
-        "gross":         gross,
-        "bonus":         round(bonus, 2),
-        "deduction":     round(deduction, 2),
-        "taxable":       taxable,
-        "income_tax":    income_tax,
-        "sf_employee":   sf_emp,
-        "sf_employer":   sf_er,
-        "net":           net,
+        "employee_id":    emp.id,
+        "employee_name":  emp.full_name,
+        "position":       emp.position or "",
+        "is_foreign":     emp.is_foreign,
+        "gross":          gross,
+        "bonus":          round(bonus, 2),
+        "deduction":      round(deduction, 2),
+        "taxable":        taxable,
+        "income_tax":     income_tax,
+        "sf_employee":    pfr,     # ПФР — хранится в поле sf_employee
+        "gnpfr_employee": gnpfr,   # ГНПФР — новое поле
+        "sf_employer":    sf_er,
+        "net":            net,
     }
 
 
@@ -135,11 +140,12 @@ def _run_dict(run: models.PayrollRun) -> dict:
         "month":            run.month,
         "month_name":       MONTH_RU[run.month] if 1 <= run.month <= 12 else "",
         "status":           run.status,
-        "gross_total":      run.gross_total,
-        "income_tax_total": run.income_tax_total,
-        "sf_employee_total":run.sf_employee_total,
-        "sf_employer_total":run.sf_employer_total,
-        "net_total":        run.net_total,
+        "gross_total":       run.gross_total,
+        "income_tax_total":  run.income_tax_total,
+        "sf_employee_total": run.sf_employee_total,  # ПФР 8%
+        "gnpfr_total":       run.gnpfr_total or 0,   # ГНПФР 2%
+        "sf_employer_total": run.sf_employer_total,
+        "net_total":         run.net_total,
         "is_paid":           run.is_paid or False,
         "paid_at":           run.paid_at.isoformat() if run.paid_at else None,
         "is_tax_paid":       run.is_tax_paid or False,
@@ -164,10 +170,11 @@ def _run_detail(run: models.PayrollRun) -> dict:
             "bonus":         e.bonus or 0,
             "deduction":     e.deduction or 0,
             "taxable":       e.taxable or e.gross,
-            "income_tax":    e.income_tax,
-            "sf_employee":   e.sf_employee,
-            "sf_employer":   e.sf_employer,
-            "net":           e.net,
+            "income_tax":     e.income_tax,
+            "sf_employee":    e.sf_employee,   # ПФР 8%
+            "gnpfr_employee": e.gnpfr_employee or 0,  # ГНПФР 2%
+            "sf_employer":    e.sf_employer,
+            "net":            e.net,
         }
         for e in run.entries
     ]
@@ -282,14 +289,15 @@ def preview_payroll(company_id: int,
     return {
         "rows": rows,
         "totals": {
-            "gross":       round(sum(r["gross"]       for r in rows), 2),
-            "bonus":       round(sum(r["bonus"]       for r in rows), 2),
-            "deduction":   round(sum(r["deduction"]   for r in rows), 2),
-            "taxable":     round(sum(r["taxable"]     for r in rows), 2),
-            "income_tax":  round(sum(r["income_tax"]  for r in rows), 2),
-            "sf_employee": round(sum(r["sf_employee"] for r in rows), 2),
-            "sf_employer": round(sum(r["sf_employer"] for r in rows), 2),
-            "net":         round(sum(r["net"]         for r in rows), 2),
+            "gross":          round(sum(r["gross"]          for r in rows), 2),
+            "bonus":          round(sum(r["bonus"]          for r in rows), 2),
+            "deduction":      round(sum(r["deduction"]      for r in rows), 2),
+            "taxable":        round(sum(r["taxable"]        for r in rows), 2),
+            "income_tax":     round(sum(r["income_tax"]     for r in rows), 2),
+            "sf_employee":    round(sum(r["sf_employee"]    for r in rows), 2),  # ПФР
+            "gnpfr_employee": round(sum(r["gnpfr_employee"] for r in rows), 2),  # ГНПФР
+            "sf_employer":    round(sum(r["sf_employer"]    for r in rows), 2),
+            "net":            round(sum(r["net"]            for r in rows), 2),
         },
         "tax_info": {
             "resident":   TAX["resident"],
@@ -362,12 +370,13 @@ def run_payroll(company_id: int, data: RunPayrollRequest,
         for e in emps
     ]
 
-    gross      = round(sum(r["gross"]       for r in rows), 2)
-    taxable_t  = round(sum(r["taxable"]     for r in rows), 2)
-    it_total   = round(sum(r["income_tax"]  for r in rows), 2)
-    sf_emp_t   = round(sum(r["sf_employee"] for r in rows), 2)
-    sf_er_t    = round(sum(r["sf_employer"] for r in rows), 2)
-    net        = round(sum(r["net"]         for r in rows), 2)
+    gross      = round(sum(r["gross"]          for r in rows), 2)
+    taxable_t  = round(sum(r["taxable"]        for r in rows), 2)
+    it_total   = round(sum(r["income_tax"]     for r in rows), 2)
+    pfr_t      = round(sum(r["sf_employee"]    for r in rows), 2)   # ПФР 8%
+    gnpfr_t    = round(sum(r["gnpfr_employee"] for r in rows), 2)   # ГНПФР 2%
+    sf_er_t    = round(sum(r["sf_employer"]    for r in rows), 2)
+    net        = round(sum(r["net"]            for r in rows), 2)
 
     # Сохраняем PayrollRun
     run = models.PayrollRun(
@@ -377,7 +386,8 @@ def run_payroll(company_id: int, data: RunPayrollRequest,
         status            = "posted",
         gross_total       = gross,
         income_tax_total  = it_total,
-        sf_employee_total = sf_emp_t,
+        sf_employee_total = pfr_t,     # ПФР 8%
+        gnpfr_total       = gnpfr_t,   # ГНПФР 2%
         sf_employer_total = sf_er_t,
         net_total         = net,
     )
@@ -387,19 +397,20 @@ def run_payroll(company_id: int, data: RunPayrollRequest,
     # Строки по сотрудникам
     for r in rows:
         db.add(models.PayrollRunEntry(
-            run_id        = run.id,
-            employee_id   = r["employee_id"],
-            employee_name = r["employee_name"],
-            position      = r["position"],
-            is_foreign    = r["is_foreign"],
-            bonus         = r["bonus"],
-            deduction     = r["deduction"],
-            gross         = r["gross"],
-            taxable       = r["taxable"],
-            income_tax    = r["income_tax"],
-            sf_employee   = r["sf_employee"],
-            sf_employer   = r["sf_employer"],
-            net           = r["net"],
+            run_id         = run.id,
+            employee_id    = r["employee_id"],
+            employee_name  = r["employee_name"],
+            position       = r["position"],
+            is_foreign     = r["is_foreign"],
+            bonus          = r["bonus"],
+            deduction      = r["deduction"],
+            gross          = r["gross"],
+            taxable        = r["taxable"],
+            income_tax     = r["income_tax"],
+            sf_employee    = r["sf_employee"],    # ПФР 8%
+            gnpfr_employee = r["gnpfr_employee"], # ГНПФР 2%
+            sf_employer    = r["sf_employer"],
+            net            = r["net"],
         ))
 
     # Проводки
@@ -407,11 +418,13 @@ def run_payroll(company_id: int, data: RunPayrollRequest,
     _post_entry(company_id, "8010", "3520", gross,
                 f"Начисление заработной платы за {label}", run, db)
     _post_entry(company_id, "3520", "3410", it_total,
-                f"Удержан подоходный налог за {label}", run, db)
-    _post_entry(company_id, "3520", "3530", sf_emp_t,
-                f"Удержан социальный фонд (работники) за {label}", run, db)
+                f"Удержан подоходный налог (ПН 10%) за {label}", run, db)
+    _post_entry(company_id, "3520", "3531", pfr_t,
+                f"Удержан ПФР (8%) за {label}", run, db)
+    _post_entry(company_id, "3520", "3534", gnpfr_t,
+                f"Удержан ГНПФР (2%) за {label}", run, db)
     _post_entry(company_id, "8020", "3530", sf_er_t,
-                f"Начислен социальный фонд работодателя за {label}", run, db)
+                f"Начислен соцфонд работодателя (17.5%) за {label}", run, db)
 
     db.commit()
     db.refresh(run)
@@ -504,12 +517,17 @@ def pay_salary(company_id: int, run_id: int, data: PayRequest,
     if run.is_paid:
         raise HTTPException(400, "Зарплата уже выплачена")
 
-    credit = "1110" if data.account_type == "cash" else "1210"
-    pay_dt = datetime.strptime(data.pay_date, "%Y-%m-%d") if data.pay_date else datetime.utcnow()
-    label  = f"{MONTH_RU[run.month]} {run.year}"
+    credit    = "1110" if data.account_type == "cash" else "1210"
+    pay_dt    = datetime.strptime(data.pay_date, "%Y-%m-%d") if data.pay_date else datetime.utcnow()
+    label     = f"{MONTH_RU[run.month]} {run.year}"
+    advance   = run.advance_total or 0
+    remaining = round(run.net_total - advance, 2)
 
-    _post_entry(company_id, "3520", credit, run.net_total,
-                f"Выплата заработной платы за {label}", run, db)
+    if remaining > 0:
+        _post_entry(company_id, "3520", credit, remaining,
+                    f"Выплата заработной платы за {label}"
+                    + (f" (за вычетом аванса {advance:,.2f})" if advance else ""),
+                    run, db)
 
     run.is_paid = True
     run.paid_at = pay_dt
@@ -537,15 +555,21 @@ def pay_taxes(company_id: int, run_id: int, data: PayRequest,
     if run.is_tax_paid:
         raise HTTPException(400, "Налоги уже оплачены")
 
-    credit  = "1110" if data.account_type == "cash" else "1210"
-    pay_dt  = datetime.strptime(data.pay_date, "%Y-%m-%d") if data.pay_date else datetime.utcnow()
-    label   = f"{MONTH_RU[run.month]} {run.year}"
-    sf_total = round((run.sf_employee_total or 0) + (run.sf_employer_total or 0), 2)
+    credit    = "1110" if data.account_type == "cash" else "1210"
+    pay_dt    = datetime.strptime(data.pay_date, "%Y-%m-%d") if data.pay_date else datetime.utcnow()
+    label     = f"{MONTH_RU[run.month]} {run.year}"
+    pfr_amt   = run.sf_employee_total or 0
+    gnpfr_amt = run.gnpfr_total or 0
+    sf_er_amt = run.sf_employer_total or 0
 
     _post_entry(company_id, "3410", credit, run.income_tax_total,
-                f"Оплата подоходного налога за {label}", run, db)
-    _post_entry(company_id, "3530", credit, sf_total,
-                f"Оплата социального фонда за {label}", run, db)
+                f"Оплата подоходного налога (ПН) за {label}", run, db)
+    _post_entry(company_id, "3531", credit, pfr_amt,
+                f"Оплата ПФР (8%) за {label}", run, db)
+    _post_entry(company_id, "3534", credit, gnpfr_amt,
+                f"Оплата ГНПФР (2%) за {label}", run, db)
+    _post_entry(company_id, "3530", credit, sf_er_amt,
+                f"Оплата соцфонда работодателя за {label}", run, db)
 
     run.is_tax_paid = True
     run.tax_paid_at = pay_dt
@@ -694,7 +718,8 @@ def export_run_excel(company_id: int, run_id: int,
     ws.title = f"{MONTH_RU[run.month]} {run.year}"
 
     # ── Заголовок ──────────────────────────────────────────────────────────
-    ws.merge_cells("A1:I1")
+    NUM_COLS = 11
+    ws.merge_cells(f"A1:{get_column_letter(NUM_COLS)}1")
     ws["A1"] = (f"РАСЧЁТНАЯ ВЕДОМОСТЬ ЗА "
                 f"{MONTH_RU[run.month].upper()} {run.year} ГОДА")
     ws["A1"].font      = Font(bold=True, size=13)
@@ -702,22 +727,24 @@ def export_run_excel(company_id: int, run_id: int,
     ws.row_dimensions[1].height = 22
 
     if company:
-        ws.merge_cells("A2:I2")
+        ws.merge_cells(f"A2:{get_column_letter(NUM_COLS)}2")
         ws["A2"]           = company.name
         ws["A2"].font      = Font(size=11, italic=True)
         ws["A2"].alignment = Alignment(horizontal="center")
 
     # ── Шапка таблицы ──────────────────────────────────────────────────────
     HEADERS = [
-        ("№",              5),
-        ("ФИО",           30),
-        ("Должность",     20),
-        ("Оклад",         13),
-        ("Премия",        12),
-        ("Удержание",     12),
-        ("Подох. налог",  14),
-        ("СФ (работник)", 14),
-        ("К выдаче",      14),
+        ("№",           5),
+        ("ФИО",        30),
+        ("Должность",  18),
+        ("Оклад",      13),
+        ("Премия",     10),
+        ("Удержание",  10),
+        ("ПН (10%)",   11),
+        ("ПФР (8%)",   11),
+        ("ГНПФР (2%)", 11),
+        ("СФ р-ль",    11),
+        ("К выдаче",   13),
     ]
     fill_hdr = PatternFill(start_color="D9E1F2", end_color="D9E1F2", fill_type="solid")
     for col, (hdr, width) in enumerate(HEADERS, 1):
@@ -731,11 +758,14 @@ def export_run_excel(company_id: int, run_id: int,
 
     # ── Строки ─────────────────────────────────────────────────────────────
     NUM_FMT = "#,##0.00"
+    gnpfr_total_run = run.gnpfr_total or 0
     for idx, e in enumerate(run.entries, 1):
         r      = 4 + idx
+        gnpfr  = e.gnpfr_employee or 0
         values = [idx, e.employee_name, e.position or "",
                   e.gross, e.bonus or 0, e.deduction or 0,
-                  e.income_tax, e.sf_employee, e.net]
+                  e.income_tax, e.sf_employee, gnpfr,
+                  e.sf_employer, e.net]
         for col, val in enumerate(values, 1):
             cell = ws.cell(row=r, column=col, value=val)
             if col >= 4:
@@ -753,25 +783,27 @@ def export_run_excel(company_id: int, run_id: int,
     ws[f"A{tr}"].font = Font(bold=True)
     fill_tot = PatternFill(start_color="E2EFDA", end_color="E2EFDA",
                            fill_type="solid")
-    for col, val in zip(
-        [4, 5, 6, 7, 8, 9],
-        [run.gross_total, 0, 0,
-         run.income_tax_total, run.sf_employee_total, run.net_total],
-    ):
+    totals = [run.gross_total, 0, 0,
+              run.income_tax_total, run.sf_employee_total, gnpfr_total_run,
+              run.sf_employer_total, run.net_total]
+    for col, val in zip(range(4, NUM_COLS + 1), totals):
         cell               = ws.cell(row=tr, column=col, value=val)
         cell.font          = Font(bold=True)
         cell.number_format = NUM_FMT
         cell.alignment     = Alignment(horizontal="right")
         cell.fill          = fill_tot
 
-    # ── Доп. строка: СФ работодателя ───────────────────────────────────────
+    # ── Примечания ─────────────────────────────────────────────────────────
+    note_row = tr + 1
+    ws.merge_cells(f"A{note_row}:{get_column_letter(NUM_COLS)}{note_row}")
+    notes = []
+    if run.advance_total:
+        notes.append(f"Аванс: {run.advance_total:,.2f} KGS")
     if run.sf_employer_total:
-        note_row = tr + 1
-        ws.merge_cells(f"A{note_row}:I{note_row}")
-        ws[f"A{note_row}"] = (f"Социальный фонд работодателя (за счёт компании): "
-                              f"{run.sf_employer_total:,.2f} KGS")
-        ws[f"A{note_row}"].font      = Font(italic=True, size=9)
-        ws[f"A{note_row}"].alignment = Alignment(horizontal="right")
+        notes.append(f"СФ работодателя: {run.sf_employer_total:,.2f} KGS (за счёт компании)")
+    ws[f"A{note_row}"] = "  •  ".join(notes) if notes else ""
+    ws[f"A{note_row}"].font      = Font(italic=True, size=9)
+    ws[f"A{note_row}"].alignment = Alignment(horizontal="right")
 
     # ── Подписи ─────────────────────────────────────────────────────────────
     sig = tr + 3

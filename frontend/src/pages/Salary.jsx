@@ -508,26 +508,28 @@ export default function Salary() {
                 <div style={{ padding: 30, textAlign: 'center', color: 'var(--text3)', fontSize: 13 }}>Загрузка...</div>
               ) : preview && preview.rows.length > 0 ? (
                 <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
-                  <div style={{ padding: '8px 16px', background: 'var(--surface2)', borderBottom: '1px solid var(--border)', fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'grid', gridTemplateColumns: '1fr 80px 90px 90px 80px 80px 90px' }}>
+                  <div style={{ padding: '8px 16px', background: 'var(--surface2)', borderBottom: '1px solid var(--border)', fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', display: 'grid', gridTemplateColumns: '1fr 75px 80px 80px 70px 70px 70px 85px' }}>
                     <div>Сотрудник</div>
                     <div style={{ textAlign: 'right' }}>Оклад</div>
-                    <div style={{ textAlign: 'center' }}>Премия (+)</div>
-                    <div style={{ textAlign: 'center' }}>Удержание (−)</div>
-                    <div style={{ textAlign: 'right' }}>ПН</div>
-                    <div style={{ textAlign: 'right' }}>СФ</div>
+                    <div style={{ textAlign: 'center' }}>Премия</div>
+                    <div style={{ textAlign: 'center' }}>Удержание</div>
+                    <div style={{ textAlign: 'right' }}>ПН 10%</div>
+                    <div style={{ textAlign: 'right' }}>ПФР 8%</div>
+                    <div style={{ textAlign: 'right' }}>ГНПФР 2%</div>
                     <div style={{ textAlign: 'right' }}>К выдаче</div>
                   </div>
                   {preview.rows.map((r, i) => {
                     const adj = adjustments[r.employee_id] || { bonus: '', deduction: '' }
                     const bonus = parseFloat(adj.bonus) || 0
                     const ded   = parseFloat(adj.deduction) || 0
-                    // Пересчёт на лету
+                    // Пересчёт на лету с ГНПФР
                     const taxable = r.gross + bonus
-                    const it  = Math.round(taxable * (r.is_foreign ? 0.10 : 0.10) * 100) / 100
-                    const sf  = Math.round(taxable * (r.is_foreign ? 0 : 0.08) * 100) / 100
-                    const net = Math.round((taxable - it - sf - ded) * 100) / 100
+                    const it    = Math.round(taxable * 0.10 * 100) / 100
+                    const pfr   = Math.round(taxable * (r.is_foreign ? 0 : 0.08) * 100) / 100
+                    const gnpfr = Math.round(taxable * (r.is_foreign ? 0 : 0.02) * 100) / 100
+                    const net   = Math.round((taxable - it - pfr - gnpfr - ded) * 100) / 100
                     return (
-                      <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 80px 90px 90px 80px 80px 90px', padding: '8px 16px', borderBottom: '1px solid var(--border)', alignItems: 'center', gap: 4 }}>
+                      <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 75px 80px 80px 70px 70px 70px 85px', padding: '8px 16px', borderBottom: '1px solid var(--border)', alignItems: 'center', gap: 4 }}>
                         <div>
                           <div style={{ fontWeight: 600, fontSize: 12 }}>{r.employee_name}</div>
                           <div style={{ fontSize: 10, color: 'var(--text3)' }}>{r.position || ''}{r.is_foreign && <span style={{ marginLeft: 4, color: '#b45309' }}>нерез.</span>}</div>
@@ -550,19 +552,21 @@ export default function Salary() {
                           />
                         </div>
                         <div style={{ textAlign: 'right', fontSize: 11, color: 'var(--error)' }}>−{fmt(it)}</div>
-                        <div style={{ textAlign: 'right', fontSize: 11, color: 'var(--error)' }}>−{fmt(sf)}</div>
+                        <div style={{ textAlign: 'right', fontSize: 11, color: 'var(--error)' }}>−{fmt(pfr)}</div>
+                        <div style={{ textAlign: 'right', fontSize: 11, color: 'var(--error)' }}>−{fmt(gnpfr)}</div>
                         <div style={{ textAlign: 'right', fontSize: 12, fontWeight: 800, color: net >= 0 ? 'var(--success)' : 'var(--error)' }}>{fmt(net)}</div>
                       </div>
                     )
                   })}
                   {/* Итого */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 80px 90px 90px 80px 80px 90px', padding: '8px 16px', background: 'var(--surface2)', borderTop: '2px solid var(--border)', fontWeight: 800, fontSize: 11 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 75px 80px 80px 70px 70px 70px 85px', padding: '8px 16px', background: 'var(--surface2)', borderTop: '2px solid var(--border)', fontWeight: 800, fontSize: 11 }}>
                     <div style={{ color: 'var(--text3)' }}>ИТОГО</div>
                     <div style={{ textAlign: 'right' }}>{fmt(preview.totals.gross)}</div>
                     <div style={{ textAlign: 'right', color: 'var(--success)' }}>{fmt(Object.values(adjustments).reduce((s,a) => s + (parseFloat(a.bonus)||0), 0))}</div>
                     <div style={{ textAlign: 'right', color: 'var(--error)' }}>{fmt(Object.values(adjustments).reduce((s,a) => s + (parseFloat(a.deduction)||0), 0))}</div>
                     <div style={{ textAlign: 'right', color: 'var(--error)' }}>−{fmt(preview.totals.income_tax)}</div>
                     <div style={{ textAlign: 'right', color: 'var(--error)' }}>−{fmt(preview.totals.sf_employee)}</div>
+                    <div style={{ textAlign: 'right', color: 'var(--error)' }}>−{fmt(preview.totals.gnpfr_employee || 0)}</div>
                     <div style={{ textAlign: 'right', color: 'var(--success)' }}>{fmt(preview.totals.net)}</div>
                   </div>
                   <div style={{ padding: '6px 16px', fontSize: 10, color: 'var(--text3)', background: 'var(--surface2)' }}>
@@ -850,18 +854,19 @@ export default function Salary() {
             {/* Таблица */}
             <div style={{ overflowY: 'auto', flex: 1 }}>
               {/* Заголовок */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px 80px 80px 90px 90px', padding: '8px 16px', background: 'var(--surface2)', borderBottom: '1px solid var(--border)', fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 85px 72px 72px 72px 85px 80px', padding: '8px 16px', background: 'var(--surface2)', borderBottom: '1px solid var(--border)', fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                 <div>Сотрудник</div>
                 <div style={{ textAlign: 'right' }}>Оклад</div>
-                <div style={{ textAlign: 'right' }}>ПН</div>
-                <div style={{ textAlign: 'right' }}>СФ</div>
+                <div style={{ textAlign: 'right' }}>ПН 10%</div>
+                <div style={{ textAlign: 'right' }}>ПФР 8%</div>
+                <div style={{ textAlign: 'right' }}>ГНПФР 2%</div>
                 <div style={{ textAlign: 'right' }}>К выдаче</div>
                 <div style={{ textAlign: 'right' }}>СФ р-ль</div>
               </div>
               {(selectedRun.entries || []).map((e, i) => (
                 <div key={i}
                   onClick={() => setSlipEntry({ ...e, run: selectedRun })}
-                  style={{ display: 'grid', gridTemplateColumns: '1fr 90px 80px 80px 90px 90px', padding: '10px 16px', borderBottom: '1px solid var(--border)', cursor: 'pointer', transition: 'background 0.1s' }}
+                  style={{ display: 'grid', gridTemplateColumns: '1fr 85px 72px 72px 72px 85px 80px', padding: '10px 16px', borderBottom: '1px solid var(--border)', cursor: 'pointer', transition: 'background 0.1s' }}
                   onMouseEnter={ev => ev.currentTarget.style.background = 'var(--surface2)'}
                   onMouseLeave={ev => ev.currentTarget.style.background = 'transparent'}>
                   <div>
@@ -875,16 +880,18 @@ export default function Salary() {
                   <div style={{ textAlign: 'right', fontSize: 13, fontWeight: 700 }}>{fmt(e.gross)}</div>
                   <div style={{ textAlign: 'right', fontSize: 12, color: 'var(--error)' }}>−{fmt(e.income_tax)}</div>
                   <div style={{ textAlign: 'right', fontSize: 12, color: 'var(--error)' }}>−{fmt(e.sf_employee)}</div>
+                  <div style={{ textAlign: 'right', fontSize: 12, color: 'var(--error)' }}>−{fmt(e.gnpfr_employee || 0)}</div>
                   <div style={{ textAlign: 'right', fontSize: 13, fontWeight: 800, color: 'var(--success)' }}>{fmt(e.net)}</div>
                   <div style={{ textAlign: 'right', fontSize: 12, color: 'var(--warn)' }}>{fmt(e.sf_employer)}</div>
                 </div>
               ))}
               {/* Итого */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px 80px 80px 90px 90px', padding: '10px 16px', background: 'var(--surface2)', fontWeight: 800, fontSize: 12 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 85px 72px 72px 72px 85px 80px', padding: '10px 16px', background: 'var(--surface2)', fontWeight: 800, fontSize: 12 }}>
                 <div style={{ color: 'var(--text3)' }}>ИТОГО</div>
                 <div style={{ textAlign: 'right' }}>{fmt(selectedRun.gross_total)}</div>
                 <div style={{ textAlign: 'right', color: 'var(--error)' }}>−{fmt(selectedRun.income_tax_total)}</div>
                 <div style={{ textAlign: 'right', color: 'var(--error)' }}>−{fmt(selectedRun.sf_employee_total)}</div>
+                <div style={{ textAlign: 'right', color: 'var(--error)' }}>−{fmt(selectedRun.gnpfr_total || 0)}</div>
                 <div style={{ textAlign: 'right', color: 'var(--success)' }}>{fmt(selectedRun.net_total)}</div>
                 <div style={{ textAlign: 'right', color: 'var(--warn)' }}>{fmt(selectedRun.sf_employer_total)}</div>
               </div>
@@ -894,9 +901,10 @@ export default function Salary() {
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ai)', marginBottom: 6 }}>📒 Проводки начисления</div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: 11, color: 'var(--text2)' }}>
                   <div>Дт 8010 / Кт 3520 — {fmt(selectedRun.gross_total)} (начисление зарплаты)</div>
-                  <div>Дт 3520 / Кт 3410 — {fmt(selectedRun.income_tax_total)} (подоходный налог)</div>
-                  {selectedRun.sf_employee_total > 0 && <div>Дт 3520 / Кт 3530 — {fmt(selectedRun.sf_employee_total)} (СФ работника)</div>}
-                  {selectedRun.sf_employer_total > 0 && <div>Дт 8020 / Кт 3530 — {fmt(selectedRun.sf_employer_total)} (СФ работодателя)</div>}
+                  <div>Дт 3520 / Кт 3410 — {fmt(selectedRun.income_tax_total)} (ПН 10%)</div>
+                  {selectedRun.sf_employee_total > 0 && <div>Дт 3520 / Кт 3531 — {fmt(selectedRun.sf_employee_total)} (ПФР 8%)</div>}
+                  {(selectedRun.gnpfr_total || 0) > 0 && <div>Дт 3520 / Кт 3534 — {fmt(selectedRun.gnpfr_total)} (ГНПФР 2%)</div>}
+                  {selectedRun.sf_employer_total > 0 && <div>Дт 8020 / Кт 3530 — {fmt(selectedRun.sf_employer_total)} (СФ работодателя 17.5%)</div>}
                 </div>
               </div>
 
@@ -923,20 +931,28 @@ export default function Salary() {
 
                 <div style={{ display: 'flex', gap: 8 }}>
                   {/* Выплатить зарплату */}
-                  <button
-                    onClick={handlePaySalary}
-                    disabled={paying || selectedRun.is_paid}
-                    style={{
-                      flex: 1, border: 'none', borderRadius: 'var(--radius-sm)', padding: '10px 0',
-                      fontSize: 12, fontWeight: 700, cursor: selectedRun.is_paid ? 'default' : 'pointer',
-                      fontFamily: 'inherit',
-                      background: selectedRun.is_paid ? 'var(--success-light)' : 'var(--success)',
-                      color: selectedRun.is_paid ? 'var(--success)' : '#fff',
-                    }}>
-                    {selectedRun.is_paid
-                      ? `✓ Выплачено ${selectedRun.paid_at ? fmtDate(selectedRun.paid_at.slice(0,10)) : ''}`
-                      : `💸 Выплатить ${fmt(selectedRun.net_total)} KGS`}
-                  </button>
+                  {(() => {
+                    const advance   = selectedRun.advance_total || 0
+                    const remaining = Math.max(0, (selectedRun.net_total || 0) - advance)
+                    return (
+                      <button
+                        onClick={handlePaySalary}
+                        disabled={paying || selectedRun.is_paid}
+                        style={{
+                          flex: 1, border: 'none', borderRadius: 'var(--radius-sm)', padding: '10px 0',
+                          fontSize: 12, fontWeight: 700, cursor: selectedRun.is_paid ? 'default' : 'pointer',
+                          fontFamily: 'inherit',
+                          background: selectedRun.is_paid ? 'var(--success-light)' : 'var(--success)',
+                          color: selectedRun.is_paid ? 'var(--success)' : '#fff',
+                        }}>
+                        {selectedRun.is_paid
+                          ? `✓ Выплачено ${selectedRun.paid_at ? fmtDate(selectedRun.paid_at.slice(0,10)) : ''}`
+                          : advance > 0
+                            ? `💸 Выплатить ${fmt(remaining)} KGS (за вычетом аванса ${fmt(advance)})`
+                            : `💸 Выплатить ${fmt(selectedRun.net_total)} KGS`}
+                      </button>
+                    )
+                  })()}
 
                   {/* Оплатить налоги */}
                   <button
@@ -1055,8 +1071,11 @@ export default function Salary() {
             <div style={{ padding: '0 20px 14px', borderBottom: '1px solid var(--border)' }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Удержано</div>
               {[
-                ['Подоходный налог (ПН)',              slipEntry.income_tax],
-                ['Соцфонд работника',                  slipEntry.sf_employee],
+                ['Подоходный налог (ПН 10%)',  slipEntry.income_tax],
+                ['ПФР 8% (сч. 3531)',          slipEntry.sf_employee],
+                (slipEntry.gnpfr_employee || 0) > 0
+                  ? ['ГНПФР 2% (сч. 3534)', slipEntry.gnpfr_employee]
+                  : null,
                 slipEntry.deduction > 0 ? ['Удержание', slipEntry.deduction] : null,
               ].filter(Boolean).map(([label, val]) => (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 6 }}>
@@ -1065,14 +1084,22 @@ export default function Salary() {
                 </div>
               ))}
               <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>
-                Соцфонд работодателя: {fmt(slipEntry.sf_employer)} KGS (за счёт компании)
+                СФ работодателя 17.5%: {fmt(slipEntry.sf_employer)} KGS (за счёт компании)
               </div>
             </div>
 
             {/* Итого */}
-            <div style={{ padding: '14px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--text)' }}>К выдаче</div>
-              <div style={{ fontWeight: 800, fontSize: 18, color: 'var(--success)' }}>{fmt(slipEntry.net)} KGS</div>
+            <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)' }}>
+              {slipEntry.run?.advance_total > 0 && !slipEntry.run?.is_paid && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginBottom: 8, color: 'var(--text3)' }}>
+                  <span>Выплачено авансом</span>
+                  <span style={{ fontWeight: 600, color: 'var(--warn)' }}>−{fmt(slipEntry.run.advance_total)} KGS</span>
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--text)' }}>К выдаче</div>
+                <div style={{ fontWeight: 800, fontSize: 18, color: 'var(--success)' }}>{fmt(slipEntry.net)} KGS</div>
+              </div>
             </div>
           </div>
         </div>

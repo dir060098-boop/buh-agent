@@ -151,7 +151,8 @@ class PayrollRun(Base):
     status           = Column(String, default="posted")  # posted
     gross_total      = Column(Float, default=0)
     income_tax_total = Column(Float, default=0)
-    sf_employee_total= Column(Float, default=0)
+    sf_employee_total= Column(Float, default=0)   # ПФР 8%
+    gnpfr_total      = Column(Float, default=0)   # ГНПФР 2%
     sf_employer_total= Column(Float, default=0)
     net_total        = Column(Float, default=0)
     is_paid          = Column(Boolean, default=False)   # зарплата выплачена
@@ -178,10 +179,11 @@ class PayrollRunEntry(Base):
     deduction     = Column(Float, default=0)   # удержание (не влияет на налог)
     gross         = Column(Float)              # оклад
     taxable       = Column(Float)              # оклад + премия (налоговая база)
-    income_tax    = Column(Float)
-    sf_employee   = Column(Float)
-    sf_employer   = Column(Float)
-    net           = Column(Float)              # к выдаче = taxable - налоги - удержания
+    income_tax      = Column(Float)
+    sf_employee     = Column(Float)            # ПФР 8%
+    gnpfr_employee  = Column(Float, default=0) # ГНПФР 2%
+    sf_employer     = Column(Float)
+    net             = Column(Float)            # к выдаче = taxable - налоги - удержания
     run           = relationship("PayrollRun", back_populates="entries")
 
 class EmployeeLeave(Base):
