@@ -18,12 +18,6 @@ const DOC_TYPES = [
   ['other', 'Прочее'],
 ]
 
-const STATUS_STYLE = {
-  pending:      { bg: 'var(--warn-light)',    color: 'var(--warn)',    label: 'Ожидает' },
-  posted:       { bg: 'var(--success-light)', color: 'var(--success)', label: 'Разнесено' },
-  needs_review: { bg: '#e8f0fe',              color: '#1a56db',        label: 'На проверке' },
-}
-
 // Типы документов — нужны только для цветных бейджиков
 const TYPE_COLOR = {
   invoice:       '#7c3aed',
@@ -144,13 +138,12 @@ export default function Documents() {
 
         {/* Таблица */}
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '90px 120px 1fr 1fr 120px 110px 64px', gap: 8, padding: '10px 16px', borderBottom: '2px solid var(--border)', background: 'var(--surface2)', fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '90px 120px 1fr 1fr 120px 48px', gap: 8, padding: '10px 16px', borderBottom: '2px solid var(--border)', background: 'var(--surface2)', fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
             <div>Дата</div>
             <div>Тип</div>
             <div>Контрагент</div>
             <div>Операция</div>
             <div style={{ textAlign: 'right' }}>Сумма</div>
-            <div style={{ textAlign: 'center' }}>Статус</div>
             <div></div>
           </div>
 
@@ -163,12 +156,11 @@ export default function Documents() {
                 : 'Документов пока нет — загрузите первый через Сканер'}
             </div>
           ) : docs.map(doc => {
-            const st    = STATUS_STYLE[doc.posting_status] || STATUS_STYLE.pending
             const tColor = TYPE_COLOR[doc.doc_type] || '#374151'
             return (
               <div key={doc.id}
                 onClick={() => setSelected(doc)}
-                style={{ display: 'grid', gridTemplateColumns: '90px 120px 1fr 1fr 120px 110px 64px', gap: 8, padding: '11px 16px', borderBottom: '1px solid var(--border)', cursor: 'pointer', transition: 'background 0.1s' }}
+                style={{ display: 'grid', gridTemplateColumns: '90px 120px 1fr 1fr 120px 48px', gap: 8, padding: '11px 16px', borderBottom: '1px solid var(--border)', cursor: 'pointer', transition: 'background 0.1s' }}
                 onMouseEnter={e => e.currentTarget.style.background = 'var(--surface2)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                 <div style={{ fontSize: 12, color: 'var(--text2)' }}>{fmtDate(doc.doc_date)}</div>
@@ -183,9 +175,6 @@ export default function Documents() {
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.operation_type || '—'}</div>
                 <div style={{ textAlign: 'right', fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{fmt(doc.amount, doc.currency)}</div>
-                <div style={{ textAlign: 'center' }}>
-                  <span style={{ background: st.bg, color: st.color, fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 20 }}>{st.label}</span>
-                </div>
                 <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
                   <button onClick={e => { e.stopPropagation(); handleDelete(doc) }}
                     disabled={deleting === doc.id}
@@ -232,10 +221,6 @@ export default function Documents() {
                       fontSize: 11, color: '#fff', fontWeight: 700, padding: '2px 8px', borderRadius: 10,
                       background: TYPE_COLOR[selected.doc_type] || '#374151'
                     }}>{selected.doc_type_label}</span>
-                    {(() => {
-                      const st = STATUS_STYLE[selected.posting_status] || STATUS_STYLE.pending
-                      return <span style={{ background: st.bg, color: st.color, fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20 }}>{st.label}</span>
-                    })()}
                   </div>
                   <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--text)', marginTop: 4 }}>
                     {selected.doc_number ? `№${selected.doc_number}` : 'Б/н'}
