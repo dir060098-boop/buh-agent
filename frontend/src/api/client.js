@@ -74,10 +74,16 @@ export const documents = {
 }
 
 export const esf = {
-  list: (companyId) => api.get(`/api/esf/${companyId}`),
-  unlinked: (companyId) => api.get(`/api/esf/${companyId}/unlinked`),
-  create: (companyId, data) => api.post(`/api/esf/${companyId}`, data),
-  link: (esfId, docId) => api.patch(`/api/esf/${esfId}/link/${docId}`),
+  list:       (companyId, params)           => api.get(`/api/esf/${companyId}`, { params }),
+  book:       (companyId, params)           => api.get(`/api/esf/${companyId}/book`, { params }),
+  create:     (companyId, data)             => api.post(`/api/esf/${companyId}`, data),
+  delete:     (companyId, esfId)            => api.delete(`/api/esf/${companyId}/${esfId}`),
+  accept:     (companyId, esfId)            => api.patch(`/api/esf/${companyId}/${esfId}/accept`),
+  unaccept:   (companyId, esfId)            => api.patch(`/api/esf/${companyId}/${esfId}/unaccept`),
+  linkTx:     (companyId, esfId, txId)      => api.patch(`/api/esf/${companyId}/${esfId}/link-tx/${txId}`),
+  unlinkTx:   (companyId, esfId)            => api.patch(`/api/esf/${companyId}/${esfId}/unlink-tx`),
+  linkDoc:    (companyId, esfId, docId)     => api.patch(`/api/esf/${companyId}/${esfId}/link-doc/${docId}`),
+  unlinkDoc:  (companyId, esfId)            => api.patch(`/api/esf/${companyId}/${esfId}/unlink-doc`),
 }
 
 export const bank = {

@@ -74,15 +74,25 @@ class ESF(Base):
     __tablename__ = "esf"
     id = Column(Integer, primary_key=True)
     company_id = Column(Integer, ForeignKey("companies.id"))
+    direction = Column(String, default="incoming")      # incoming | outgoing
     esf_number = Column(String)
     esf_date = Column(DateTime)
-    supplier_inn = Column(String)
+    # Входящий — поставщик
     supplier_name = Column(String)
-    amount = Column(Float)
+    supplier_inn  = Column(String)
+    # Исходящий — покупатель
+    buyer_name = Column(String, nullable=True)
+    buyer_inn  = Column(String, nullable=True)
+    # Общие
+    contract_number = Column(String, nullable=True)
+    amount     = Column(Float)
     vat_amount = Column(Float, default=0)
-    status = Column(String)
+    vat_rate   = Column(String, default="12")           # "12" | "0" | "exempt"
+    status     = Column(String, default="pending")      # pending | accepted | issued
+    accepted_at = Column(DateTime, nullable=True)
     linked_payment = Column(Boolean, default=False)
-    linked_document_id = Column(Integer, ForeignKey("documents.id"), nullable=True)
+    linked_document_id  = Column(Integer, ForeignKey("documents.id"),         nullable=True)
+    bank_transaction_id = Column(Integer, ForeignKey("bank_transactions.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     company = relationship("Company", back_populates="esf_records")
 

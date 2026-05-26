@@ -95,6 +95,14 @@ def _run_migrations():
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS currency VARCHAR(3)",
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS vat_amount FLOAT",
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS ai_raw_json JSONB",
+        # esf — новые поля
+        "ALTER TABLE esf ADD COLUMN IF NOT EXISTS direction VARCHAR(20) DEFAULT 'incoming'",
+        "ALTER TABLE esf ADD COLUMN IF NOT EXISTS buyer_name VARCHAR",
+        "ALTER TABLE esf ADD COLUMN IF NOT EXISTS buyer_inn VARCHAR",
+        "ALTER TABLE esf ADD COLUMN IF NOT EXISTS contract_number VARCHAR",
+        "ALTER TABLE esf ADD COLUMN IF NOT EXISTS vat_rate VARCHAR(10) DEFAULT '12'",
+        "ALTER TABLE esf ADD COLUMN IF NOT EXISTS accepted_at TIMESTAMP",
+        "ALTER TABLE esf ADD COLUMN IF NOT EXISTS bank_transaction_id INTEGER",
         # bank_accounts
         "ALTER TABLE bank_accounts ADD COLUMN IF NOT EXISTS opening_balance FLOAT DEFAULT 0",
         "ALTER TABLE bank_accounts ADD COLUMN IF NOT EXISTS is_cash BOOLEAN DEFAULT FALSE",
