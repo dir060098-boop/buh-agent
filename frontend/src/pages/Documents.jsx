@@ -17,13 +17,6 @@ const DOC_TYPES = [
   ['other', 'Прочее'],
 ]
 
-const STATUSES = [
-  ['', 'Все статусы'],
-  ['pending', 'Ожидает разноски'],
-  ['posted', 'Разнесено'],
-  ['needs_review', 'На проверке'],
-]
-
 const STATUS_STYLE = {
   pending:      { bg: 'var(--warn-light)',    color: 'var(--warn)',    label: 'Ожидает' },
   posted:       { bg: 'var(--success-light)', color: 'var(--success)', label: 'Разнесено' },
@@ -68,7 +61,7 @@ const SEL = {
 
 export default function Documents() {
   const { companyId } = useParams()
-  const navigate = useNavigate()
+  const navigate = useNavigate() // используется в кнопке «← Назад» и «+ Загрузить документ»
 
   const [company, setCompany]   = useState(null)
   const [docs, setDocs]         = useState([])
@@ -77,11 +70,10 @@ export default function Documents() {
   const [deleting, setDeleting] = useState(null)
   const [confirmState, setConfirmState] = useState(null)
 
-  const [search, setSearch]           = useState('')
-  const [docType, setDocType]         = useState('')
-  const [postingStatus, setPostingStatus] = useState('')
-  const [dateFrom, setDateFrom]       = useState('')
-  const [dateTo, setDateTo]           = useState('')
+  const [search, setSearch]   = useState('')
+  const [docType, setDocType] = useState('')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo]     = useState('')
 
   useEffect(() => {
     companies.get(companyId).then(r => setCompany(r.data)).catch(() => {})
@@ -90,16 +82,15 @@ export default function Documents() {
   const load = useCallback(() => {
     setLoading(true)
     const params = {}
-    if (search)        params.search         = search
-    if (docType)       params.doc_type       = docType
-    if (postingStatus) params.posting_status = postingStatus
-    if (dateFrom)      params.date_from      = dateFrom
-    if (dateTo)        params.date_to        = dateTo
+    if (search)   params.search    = search
+    if (docType)  params.doc_type  = docType
+    if (dateFrom) params.date_from = dateFrom
+    if (dateTo)   params.date_to   = dateTo
     documents.list(companyId, params)
       .then(r => setDocs(r.data))
       .catch(() => setDocs([]))
       .finally(() => setLoading(false))
-  }, [companyId, search, docType, postingStatus, dateFrom, dateTo])
+  }, [companyId, search, docType, dateFrom, dateTo])
 
   useEffect(() => { load() }, [load])
 
@@ -117,12 +108,6 @@ export default function Documents() {
       }
     })
   }
-
-  // Статистика
-  const total       = docs.length
-  const pending     = docs.filter(d => d.posting_status === 'pending').length
-  const needs_rev   = docs.filter(d => d.posting_status === 'needs_review').length
-  const posted      = docs.filter(d => d.posting_status === 'posted').length
 
   const previewUrl = selected?.file_path ? scanner.fileUrl(selected.file_path) : null
 
@@ -147,28 +132,6 @@ export default function Documents() {
 
       <div style={{ maxWidth: 1100, margin: '0 auto', padding: '20px 16px' }}>
 
-        {/* Счётчики */}
-        <div style={{ display: 'flex', gap: 12, marginBottom: 16 }}>
-          {[
-            { label: 'Всего',         val: total,     color: 'var(--text)',    filter: '' },
-            { label: 'Ожидают',       val: pending,   color: 'var(--warn)',    filter: 'pending' },
-            { label: 'На проверке',   val: needs_rev, color: '#1a56db',        filter: 'needs_review' },
-            { label: 'Разнесено',     val: posted,    color: 'var(--success)', filter: 'posted' },
-          ].map(s => (
-            <div key={s.label}
-              onClick={() => setPostingStatus(postingStatus === s.filter ? '' : s.filter)}
-              style={{
-                background: postingStatus === s.filter ? 'var(--surface2)' : 'var(--surface)',
-                border: `1px solid ${postingStatus === s.filter ? 'var(--accent)' : 'var(--border)'}`,
-                borderRadius: 'var(--radius)', padding: '12px 18px',
-                boxShadow: 'var(--shadow-sm)', minWidth: 110, cursor: 'pointer',
-              }}>
-              <div style={{ fontSize: 22, fontWeight: 800, color: s.color }}>{s.val}</div>
-              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{s.label}</div>
-            </div>
-          ))}
-        </div>
-
         {/* Фильтры */}
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '12px 16px', marginBottom: 14, boxShadow: 'var(--shadow-sm)', display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
           <input value={search} onChange={e => setSearch(e.target.value)}
@@ -177,14 +140,11 @@ export default function Documents() {
           <select value={docType} onChange={e => setDocType(e.target.value)} style={{ ...SEL, flex: '1 1 160px' }}>
             {DOC_TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
-          <select value={postingStatus} onChange={e => setPostingStatus(e.target.value)} style={{ ...SEL, flex: '1 1 150px' }}>
-            {STATUSES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-          </select>
           <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} style={{ ...SEL, flex: '0 0 140px' }} />
           <span style={{ color: 'var(--text3)', fontSize: 12 }}>—</span>
           <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} style={{ ...SEL, flex: '0 0 140px' }} />
-          {(search || docType || postingStatus || dateFrom || dateTo) && (
-            <button onClick={() => { setSearch(''); setDocType(''); setPostingStatus(''); setDateFrom(''); setDateTo('') }}
+          {(search || docType || dateFrom || dateTo) && (
+            <button onClick={() => { setSearch(''); setDocType(''); setDateFrom(''); setDateTo('') }}
               style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '7px 12px', color: 'var(--text3)', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit' }}>
               Сбросить
             </button>
@@ -333,10 +293,6 @@ export default function Documents() {
                     📎 Открыть файл
                   </a>
                 )}
-                <button onClick={() => navigate(`/company/${companyId}/journal`)}
-                  style={{ flex: 1, background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '9px 0', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--text)' }}>
-                  📒 В журнал
-                </button>
                 <button onClick={() => handleDelete(selected)}
                   style={{ background: 'none', border: '1px solid var(--error)', borderRadius: 'var(--radius-sm)', padding: '9px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--error)' }}>
                   Удалить
