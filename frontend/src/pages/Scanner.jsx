@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { scanner, posting } from '../api/client'
+import NavBar from '../components/NavBar'
 
 const DOC_TYPES = [
   ['invoice','Счёт на оплату'],['act','Акт'],['esf','ЭСФ'],
@@ -174,12 +175,12 @@ export default function Scanner() {
   return (
     <div style={{minHeight:'100vh', background:'var(--bg)', fontFamily:'Manrope, sans-serif'}}>
 
-      {/* Шапка */}
-      <div style={{background:'var(--surface)', borderBottom:'1px solid var(--border)', padding:'12px 20px', display:'flex', alignItems:'center', gap:12, boxShadow:'var(--shadow-sm)'}}>
-        <button onClick={()=>navigate(`/company/${companyId}`)}
-          style={{background:'var(--surface2)', border:'1px solid var(--border)', borderRadius:'var(--radius-sm)', padding:'6px 12px', color:'var(--text2)', cursor:'pointer', fontSize:13, fontWeight:600}}>←</button>
+      <NavBar companyId={companyId} current="scanner" />
+
+      {/* Шапка модуля */}
+      <div style={{background:'var(--surface)', borderBottom:'1px solid var(--border)', padding:'10px 20px', display:'flex', alignItems:'center', gap:12, boxShadow:'var(--shadow-sm)'}}>
         <div>
-          <div style={{fontWeight:800, fontSize:16, color:'var(--text)'}}>Сканер документов</div>
+          <div style={{fontWeight:800, fontSize:15, color:'var(--text)'}}>📷 Сканер документов</div>
           <div style={{fontSize:11, color:'var(--text3)'}}>Загрузите фото или PDF — AI распознаёт, вы проверяете</div>
         </div>
       </div>

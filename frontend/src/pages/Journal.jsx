@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { posting, documents as docsApi } from '../api/client'
+import NavBar from '../components/NavBar'
 
 const S_LABEL = { posted:'Проведено', needs_review:'На проверке', rejected:'Отклонено' }
 const S_COLOR = { posted:'var(--success)', needs_review:'var(--warn)', rejected:'var(--error)' }
@@ -260,17 +261,15 @@ export default function Journal(){
   return(
     <div style={{minHeight:'100vh',background:'var(--bg)',fontFamily:'Manrope, sans-serif'}}>
 
-      {/* Шапка */}
-      <div style={{background:'var(--surface)',borderBottom:'1px solid var(--border)',padding:'12px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,boxShadow:'var(--shadow-sm)'}}>
-        <div style={{display:'flex',alignItems:'center',gap:10}}>
-          <button onClick={()=>navigate(`/company/${companyId}`)} style={{background:'var(--surface2)',border:'1px solid var(--border)',borderRadius:'var(--radius-sm)',padding:'6px 12px',color:'var(--text2)',cursor:'pointer',fontSize:13,fontWeight:600}}>←</button>
-          <div>
-            <div style={{fontWeight:800,fontSize:16,color:'var(--text)'}}>Журнал хозяйственных операций</div>
-            <div style={{fontSize:11,color:'var(--text3)'}}>План счетов КР · МСФО 2026</div>
-          </div>
+      <NavBar companyId={companyId} current="journal" />
+
+      {/* Шапка модуля */}
+      <div style={{background:'var(--surface)',borderBottom:'1px solid var(--border)',padding:'10px 20px',display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,boxShadow:'var(--shadow-sm)'}}>
+        <div>
+          <div style={{fontWeight:800,fontSize:15,color:'var(--text)'}}>📋 Журнал хозяйственных операций</div>
+          <div style={{fontSize:11,color:'var(--text3)'}}>План счетов КР · МСФО 2026</div>
         </div>
         <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-          <button onClick={()=>navigate(`/company/${companyId}/scanner`)} style={{background:'var(--surface2)',color:'var(--text2)',border:'1px solid var(--border)',padding:'7px 14px',borderRadius:'var(--radius-sm)',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}}>📷 Сканер</button>
           {selectMode?(
             <>
               <button onClick={handleBulkDelete} disabled={deleting||selected.size===0} style={{background:selected.size>0?'var(--error)':'var(--text4)',color:'#fff',border:'none',padding:'7px 14px',borderRadius:'var(--radius-sm)',fontSize:12,fontWeight:700,cursor:selected.size>0?'pointer':'not-allowed',fontFamily:'inherit'}}>{deleting?'...': `🗑 Удалить (${selected.size})`}</button>

@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { documents, scanner, companies } from '../api/client'
+import { documents, scanner } from '../api/client'
 import ConfirmModal from '../components/ConfirmModal'
+import NavBar from '../components/NavBar'
 
 const DOC_TYPES = [
   ['', 'Все типы'],
@@ -63,7 +64,6 @@ export default function Documents() {
   const { companyId } = useParams()
   const navigate = useNavigate() // используется в кнопке «← Назад» и «+ Загрузить документ»
 
-  const [company, setCompany]   = useState(null)
   const [docs, setDocs]         = useState([])
   const [loading, setLoading]   = useState(true)
   const [selected, setSelected] = useState(null)
@@ -74,10 +74,6 @@ export default function Documents() {
   const [docType, setDocType] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo]     = useState('')
-
-  useEffect(() => {
-    companies.get(companyId).then(r => setCompany(r.data)).catch(() => {})
-  }, [companyId])
 
   const load = useCallback(() => {
     setLoading(true)
@@ -114,18 +110,13 @@ export default function Documents() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
 
-      {/* Шапка */}
-      <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '12px 24px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: 'var(--shadow-sm)' }}>
-        <button onClick={() => navigate(`/company/${companyId}`)}
-          style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '6px 12px', color: 'var(--text2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-          ← Назад
-        </button>
-        <div>
-          <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--text)' }}>🗂 Архив документов</div>
-          {company && <div style={{ fontSize: 12, color: 'var(--text3)' }}>{company.name}</div>}
-        </div>
+      <NavBar companyId={companyId} current="documents" />
+
+      {/* Шапка модуля */}
+      <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '10px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: 'var(--shadow-sm)' }}>
+        <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--text)' }}>🗂 Архив документов</div>
         <button onClick={() => navigate(`/company/${companyId}/scanner`)}
-          style={{ marginLeft: 'auto', background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+          style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', padding: '7px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
           + Загрузить документ
         </button>
       </div>

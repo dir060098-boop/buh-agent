@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { deadlines as deadlinesApi, api } from '../api/client'
+import NavBar from '../components/NavBar'
 
 // ── Статусы ───────────────────────────────────────────────
 const STATUS = {
@@ -130,16 +131,11 @@ export default function Deadlines() {
   return (
     <div style={{minHeight:'100vh', background:'var(--bg)', fontFamily:'Manrope, sans-serif'}}>
 
-      {/* Шапка */}
-      <div style={{background:'var(--surface)', borderBottom:'1px solid var(--border)', padding:'12px 20px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, boxShadow:'var(--shadow-sm)'}}>
-        <div style={{display:'flex', alignItems:'center', gap:10}}>
-          <button onClick={()=>navigate(`/company/${companyId}`)}
-            style={{background:'var(--surface2)', border:'1px solid var(--border)', borderRadius:'var(--radius-sm)', padding:'6px 12px', color:'var(--text2)', cursor:'pointer', fontSize:13, fontWeight:600}}>←</button>
-          <div>
-            <div style={{fontWeight:800, fontSize:16, color:'var(--text)'}}>📅 Дедлайны и налоги</div>
-            <div style={{fontSize:11, color:'var(--text3)'}}>{company?.name} · {company?.tax_regime}</div>
-          </div>
-        </div>
+      <NavBar companyId={companyId} current="deadlines" />
+
+      {/* Шапка модуля */}
+      <div style={{background:'var(--surface)', borderBottom:'1px solid var(--border)', padding:'10px 20px', display:'flex', alignItems:'center', justifyContent:'space-between', gap:12, boxShadow:'var(--shadow-sm)'}}>
+        <div style={{fontWeight:800, fontSize:15, color:'var(--text)'}}>📅 Дедлайны и налоги</div>
         <div style={{display:'flex', gap:8}}>
           <button onClick={()=>setShowCreate(true)}
             style={{background:'var(--surface2)', color:'var(--text2)', border:'1px solid var(--border)', padding:'7px 14px', borderRadius:'var(--radius-sm)', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'inherit'}}>

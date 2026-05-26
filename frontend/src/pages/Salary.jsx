@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { salary, companies } from '../api/client'
 import ConfirmModal from '../components/ConfirmModal'
+import NavBar from '../components/NavBar'
 
 // ── Утилиты ────────────────────────────────────────────────────────────────
 function fmt(n) {
@@ -332,16 +333,11 @@ export default function Salary() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
 
-      {/* Шапка */}
-      <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '12px 24px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: 'var(--shadow-sm)' }}>
-        <button onClick={() => navigate(`/company/${companyId}`)}
-          style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '6px 12px', color: 'var(--text2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-          ← Назад
-        </button>
-        <div>
-          <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--text)' }}>👥 Зарплата и кадры</div>
-          {company && <div style={{ fontSize: 12, color: 'var(--text3)' }}>{company.name}</div>}
-        </div>
+      <NavBar companyId={companyId} current="salary" />
+
+      {/* Шапка модуля */}
+      <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '10px 24px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: 'var(--shadow-sm)' }}>
+        <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--text)' }}>💼 Зарплата и кадры</div>
       </div>
 
       {/* Табы */}

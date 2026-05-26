@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { bank, companies } from '../api/client'
 import ConfirmModal from '../components/ConfirmModal'
+import NavBar from '../components/NavBar'
 
 function fmt(n, cur = 'KGS') {
   if (n == null) return '—'
@@ -127,17 +128,12 @@ export default function Bank() {
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
 
-      {/* Шапка */}
-      <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '12px 24px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: 'var(--shadow-sm)' }}>
-        <button onClick={() => navigate(`/company/${companyId}`)}
-          style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '6px 12px', color: 'var(--text2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>
-          ← Назад
-        </button>
-        <div>
-          <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--text)' }}>🏦 Банк и касса</div>
-          {company && <div style={{ fontSize: 12, color: 'var(--text3)' }}>{company.name}</div>}
-        </div>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+      <NavBar companyId={companyId} current="bank" />
+
+      {/* Шапка модуля */}
+      <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '10px 24px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: 'var(--shadow-sm)' }}>
+        <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--text)', flex: 1 }}>🏦 Банк и касса</div>
+        <div style={{ display: 'flex', gap: 8 }}>
           <button onClick={() => { setShowAddAcc(true); setAccForm(EMPTY_ACC) }}
             style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--text)' }}>
             + Счёт
