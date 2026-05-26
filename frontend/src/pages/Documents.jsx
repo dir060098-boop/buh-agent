@@ -76,7 +76,6 @@ export default function Documents() {
   const [selected, setSelected] = useState(null)
   const [deleting, setDeleting] = useState(null)
   const [posting_doc, setPostingDoc] = useState(false)
-  const [showPreview, setShowPreview] = useState(false)
   const [confirmState, setConfirmState] = useState(null)
 
   const [search, setSearch]           = useState('')
@@ -141,9 +140,7 @@ export default function Documents() {
   const needs_rev   = docs.filter(d => d.posting_status === 'needs_review').length
   const posted      = docs.filter(d => d.posting_status === 'posted').length
 
-  // Определяем тип файла для превью
-  const previewUrl  = selected?.file_path ? scanner.fileUrl(selected.file_path) : null
-  const isPdf       = selected?.file_path?.toLowerCase().endsWith('.pdf')
+  const previewUrl = selected?.file_path ? scanner.fileUrl(selected.file_path) : null
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--bg)' }}>
@@ -155,7 +152,7 @@ export default function Documents() {
           ← Назад
         </button>
         <div>
-          <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--text)' }}>📄 Реестр документов</div>
+          <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--text)' }}>🗂 Архив документов</div>
           {company && <div style={{ fontSize: 12, color: 'var(--text3)' }}>{company.name}</div>}
         </div>
         <button onClick={() => navigate(`/company/${companyId}/scanner`)}
@@ -235,7 +232,7 @@ export default function Documents() {
             const tColor = TYPE_COLOR[doc.doc_type] || '#374151'
             return (
               <div key={doc.id}
-                onClick={() => { setSelected(doc); setShowPreview(false) }}
+                onClick={() => setSelected(doc)}
                 style={{ display: 'grid', gridTemplateColumns: '90px 120px 1fr 1fr 120px 110px 64px', gap: 8, padding: '11px 16px', borderBottom: '1px solid var(--border)', cursor: 'pointer', transition: 'background 0.1s' }}
                 onMouseEnter={e => e.currentTarget.style.background = 'var(--surface2)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
@@ -255,14 +252,6 @@ export default function Documents() {
                   <span style={{ background: st.bg, color: st.color, fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 20 }}>{st.label}</span>
                 </div>
                 <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end' }}>
-                  {doc.file_path && (
-                    <button
-                      onClick={e => { e.stopPropagation(); setSelected(doc); setShowPreview(true) }}
-                      title="Просмотр документа"
-                      style={{ fontSize: 14, background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '2px 6px', cursor: 'pointer', lineHeight: 1 }}>
-                      📎
-                    </button>
-                  )}
                   <button onClick={e => { e.stopPropagation(); handleDelete(doc) }}
                     disabled={deleting === doc.id}
                     style={{ fontSize: 11, color: 'var(--error)', background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '3px 6px', cursor: 'pointer', fontFamily: 'inherit' }}
@@ -291,36 +280,13 @@ export default function Documents() {
           <div onClick={e => e.stopPropagation()}
             style={{
               background: 'var(--surface)', borderRadius: 'var(--radius-lg)',
-              width: '100%', maxWidth: showPreview ? 900 : 520,
+              width: '100%', maxWidth: 520,
               boxShadow: 'var(--shadow-lg)', overflow: 'hidden',
-              display: 'flex', flexDirection: showPreview ? 'row' : 'column',
+              display: 'flex', flexDirection: 'column',
               maxHeight: '92vh',
             }}>
 
-            {/* ── Превью файла (слева при showPreview) ── */}
-            {showPreview && previewUrl && (
-              <div style={{ flex: '0 0 420px', background: '#1e1e2e', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', position: 'relative', overflow: 'hidden' }}>
-                {isPdf ? (
-                  <iframe
-                    src={previewUrl}
-                    title="Документ"
-                    style={{ width: '100%', height: '100%', border: 'none', minHeight: 500 }}
-                  />
-                ) : (
-                  <img
-                    src={previewUrl}
-                    alt="Документ"
-                    style={{ maxWidth: '100%', maxHeight: '80vh', objectFit: 'contain', padding: 12 }}
-                  />
-                )}
-                <a href={previewUrl} target="_blank" rel="noreferrer"
-                  style={{ position: 'absolute', bottom: 10, right: 10, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: 11, padding: '4px 10px', borderRadius: 20, textDecoration: 'none' }}>
-                  ↗ Открыть
-                </a>
-              </div>
-            )}
-
-            {/* ── Правая часть (детали) ── */}
+            {/* ── Детали документа ── */}
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
               {/* Шапка */}
@@ -341,18 +307,8 @@ export default function Documents() {
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text3)' }}>{fmtDate(selected.doc_date)}</div>
                 </div>
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                  {selected.file_path && (
-                    <button
-                      onClick={() => setShowPreview(v => !v)}
-                      title={showPreview ? 'Скрыть документ' : 'Показать документ'}
-                      style={{ background: showPreview ? 'var(--accent)' : 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '4px 10px', fontSize: 12, cursor: 'pointer', color: showPreview ? '#fff' : 'var(--text2)', fontFamily: 'inherit' }}>
-                      {showPreview ? '📄 Скрыть' : '📄 Показать'}
-                    </button>
-                  )}
-                  <button onClick={() => setSelected(null)}
-                    style={{ background: 'none', border: 'none', fontSize: 20, color: 'var(--text3)', cursor: 'pointer', lineHeight: 1 }}>×</button>
-                </div>
+                <button onClick={() => setSelected(null)}
+                  style={{ background: 'none', border: 'none', fontSize: 20, color: 'var(--text3)', cursor: 'pointer', lineHeight: 1 }}>×</button>
               </div>
 
               {/* Тело */}
