@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { documents, scanner, posting, companies } from '../api/client'
+import { documents, scanner, companies } from '../api/client'
 import ConfirmModal from '../components/ConfirmModal'
 
 const DOC_TYPES = [
@@ -75,7 +75,6 @@ export default function Documents() {
   const [loading, setLoading]   = useState(true)
   const [selected, setSelected] = useState(null)
   const [deleting, setDeleting] = useState(null)
-  const [posting_doc, setPostingDoc] = useState(false)
   const [confirmState, setConfirmState] = useState(null)
 
   const [search, setSearch]           = useState('')
@@ -117,21 +116,6 @@ export default function Documents() {
           .finally(() => setDeleting(null))
       }
     })
-  }
-
-  async function handlePostDoc(doc) {
-    setPostingDoc(true)
-    try {
-      await posting.auto(doc.id)
-      // Обновляем документ в списке
-      const updated = await documents.getById(doc.id)
-      setDocs(d => d.map(x => x.id === doc.id ? updated.data : x))
-      setSelected(updated.data)
-    } catch (err) {
-      alert(err.response?.data?.detail || 'Ошибка разноски')
-    } finally {
-      setPostingDoc(false)
-    }
   }
 
   // Статистика
@@ -339,15 +323,6 @@ export default function Documents() {
                   </div>
                 )}
 
-                {/* Кнопка «Разнести» для ожидающих */}
-                {(selected.posting_status === 'pending' || selected.posting_status === 'needs_review') && (
-                  <button
-                    onClick={() => handlePostDoc(selected)}
-                    disabled={posting_doc}
-                    style={{ marginTop: 14, width: '100%', background: posting_doc ? 'var(--surface2)' : '#7c3aed', color: posting_doc ? 'var(--text3)' : '#fff', border: 'none', borderRadius: 'var(--radius-sm)', padding: '10px 0', fontSize: 13, fontWeight: 700, cursor: posting_doc ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
-                    {posting_doc ? 'Разносим...' : '⚡ Разнести в журнал (AI)'}
-                  </button>
-                )}
               </div>
 
               {/* Футер */}
