@@ -53,6 +53,8 @@ export default function Bank() {
   const [dragOver, setDragOver]       = useState(false)
   const [confirmState, setConfirmState] = useState(null)
   const [editTx, setEditTx]           = useState(null)   // null = закрыт
+  const [matchModal, setMatchModal]   = useState(null)   // { tx, candidates, loading }
+  const [matching, setMatching]       = useState(false)
   const fileInputRef = useRef(null)
 
   useEffect(() => {
@@ -167,6 +169,30 @@ export default function Bank() {
       setEditTx(null)
       load()
     } finally { setSaving(false) }
+  }
+
+  // ── Сверка: поиск кандидатов ──────────────────────────────────────────
+  async function openMatchModal(tx) {
+    setMatchModal({ tx, candidates: [], loading: true })
+    try {
+      const r = await bank.matchCandidates(tx.id, companyId)
+      setMatchModal({ tx, candidates: r.data, loading: false })
+    } catch {
+      setMatchModal({ tx, candidates: [], loading: false })
+    }
+  }
+
+  async function handleConfirmMatch(candidate) {
+    if (!matchModal?.tx) return
+    setMatching(true)
+    try {
+      await bank.matchTransaction(matchModal.tx.id, {
+        docId: candidate.type === 'document' ? candidate.id : undefined,
+        esfId: candidate.type === 'esf' ? candidate.id : undefined,
+      })
+      setMatchModal(null)
+      load()
+    } finally { setMatching(false) }
   }
 
   // ── Авторазноска unmatched ─────────────────────────────────────────────
@@ -419,6 +445,13 @@ export default function Bank() {
                         📒
                       </button>
                     )}
+                    {tx.status === 'unmatched' && (
+                      <button onClick={() => openMatchModal(tx)}
+                        title="Сверить с документом"
+                        style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '3px 6px', fontSize: 11, cursor: 'pointer', color: 'var(--warn, #f59e0b)' }}>
+                        🔗
+                      </button>
+                    )}
                     <button onClick={() => openEditTx(tx)}
                       title="Редактировать"
                       style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '3px 6px', fontSize: 11, cursor: 'pointer', color: 'var(--text3)' }}>
@@ -571,6 +604,78 @@ export default function Bank() {
 
       {/* Модал подтверждения */}
       <ConfirmModal state={confirmState} onClose={() => setConfirmState(null)} />
+
+      {/* ── Модал: сверка с документом ────────────────────────────────── */}
+      {matchModal && (
+        <div onClick={() => { if (!matching) setMatchModal(null) }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: 'var(--surface)', borderRadius: 'var(--radius-lg)', width: '100%', maxWidth: 500, boxShadow: 'var(--shadow-lg)', overflow: 'hidden' }}>
+
+            {/* Шапка */}
+            <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 15 }}>🔗 Сверка с документом</div>
+                <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>
+                  {matchModal.tx.direction === 'out' ? '↑ Расход' : '↓ Приход'} · {fmt(matchModal.tx.amount, matchModal.tx.currency)} · {matchModal.tx.counterparty || '—'}
+                </div>
+              </div>
+              <button onClick={() => setMatchModal(null)}
+                style={{ background: 'none', border: 'none', fontSize: 20, color: 'var(--text3)', cursor: 'pointer', lineHeight: 1 }}>×</button>
+            </div>
+
+            {/* Кандидаты */}
+            <div style={{ padding: '14px 20px', maxHeight: 380, overflowY: 'auto' }}>
+              {matchModal.loading ? (
+                <div style={{ textAlign: 'center', padding: 32, color: 'var(--text3)', fontSize: 13 }}>⏳ Подбираем совпадения...</div>
+              ) : matchModal.candidates.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: 32 }}>
+                  <div style={{ fontSize: 28, marginBottom: 8 }}>🔍</div>
+                  <div style={{ color: 'var(--text3)', fontSize: 13 }}>Совпадений не найдено</div>
+                  <div style={{ color: 'var(--text3)', fontSize: 11, marginTop: 4 }}>Проверьте, что документы загружены в систему</div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                  {matchModal.candidates.map(c => (
+                    <div key={`${c.type}-${c.id}`}
+                      style={{ border: `1.5px solid ${c.confidence === 'high' ? 'var(--success)' : 'var(--border)'}`, borderRadius: 'var(--radius)', padding: '12px 14px', background: c.confidence === 'high' ? 'var(--success-light,#f0fdf4)' : 'var(--surface2)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 700, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {c.type === 'esf' ? '⚡ ' : '📄 '}{c.label}
+                          </div>
+                          <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {c.counterparty}
+                          </div>
+                        </div>
+                        <div style={{ marginLeft: 12, textAlign: 'right', flexShrink: 0 }}>
+                          <div style={{ fontWeight: 800, fontSize: 13, color: 'var(--text)' }}>{fmt(c.amount, c.currency)}</div>
+                          <div style={{ fontSize: 10, padding: '2px 6px', borderRadius: 8, fontWeight: 700, marginTop: 3,
+                            background: c.confidence === 'high' ? 'var(--success)' : '#fef3c7',
+                            color: c.confidence === 'high' ? '#fff' : '#92400e' }}>
+                            {c.score}% · {c.confidence === 'high' ? 'Высокая' : 'Средняя'}
+                          </div>
+                        </div>
+                      </div>
+                      <button onClick={() => handleConfirmMatch(c)} disabled={matching}
+                        style={{ width: '100%', padding: '7px 0', background: c.confidence === 'high' ? 'var(--success)' : 'var(--accent)', color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', fontSize: 12, fontWeight: 700, cursor: matching ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: matching ? 0.6 : 1 }}>
+                        {matching ? '⏳' : '✓ Привязать'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{ padding: '10px 20px', borderTop: '1px solid var(--border)' }}>
+              <button onClick={() => setMatchModal(null)}
+                style={{ width: '100%', background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '9px 0', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--text2)' }}>
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Модал: редактировать операцию ──────────────────────────────── */}
       {editTx && (

@@ -110,6 +110,9 @@ def _run_migrations():
         "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'KGS'",
         "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS journal_entry_id INTEGER",
         "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()",
+        "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS counterparty_inn VARCHAR(20)",
+        "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS doc_number VARCHAR(100)",
+        "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS linked_esf_id INTEGER",
         # employees — подразделение
         "ALTER TABLE employees ADD COLUMN IF NOT EXISTS department VARCHAR",
         # payroll_run_entries — подразделение (снимок)

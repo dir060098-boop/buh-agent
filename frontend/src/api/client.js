@@ -93,7 +93,10 @@ export const bank = {
   transactions:      (companyId, params)    => api.get(`/api/bank/${companyId}/transactions`, { params }),
   addTransaction:    (companyId, data)      => api.post(`/api/bank/${companyId}/transactions`, data),
   deleteTransaction: (txId)                 => api.delete(`/api/bank/transactions/${txId}`),
-  matchTransaction:  (txId, docId)          => api.patch(`/api/bank/transactions/${txId}/match`, null, { params: { doc_id: docId } }),
+  matchTransaction:  (txId, { docId, esfId } = {}) =>
+    api.patch(`/api/bank/transactions/${txId}/match`, null,
+      { params: { ...(docId ? { doc_id: docId } : {}), ...(esfId ? { esf_id: esfId } : {}) } }),
+  matchCandidates:   (txId, companyId)       => api.get(`/api/bank/transactions/${txId}/match-candidates`, { params: { company_id: companyId } }),
   importStatement:    (companyId, accountId, file) => {
     const fd = new FormData()
     fd.append('account_id', accountId)

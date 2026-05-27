@@ -92,8 +92,11 @@ def tx_to_dict(tx) -> dict:
         "direction": tx.direction,
         "counterparty": tx.counterparty,
         "purpose": tx.purpose,
+        "counterparty_inn": tx.counterparty_inn,
+        "doc_number": tx.doc_number,
         "status": tx.status,
         "linked_document_id": tx.linked_document_id,
+        "linked_esf_id": getattr(tx, "linked_esf_id", None),
         "journal_entry_id": tx.journal_entry_id,
         "created_at": tx.created_at.isoformat() if tx.created_at else None,
     }
@@ -381,16 +384,209 @@ def auto_post_all(
 
 
 @router.patch("/transactions/{tx_id}/match")
-def match_transaction(tx_id: int, doc_id: int,
+def match_transaction(tx_id: int, doc_id: Optional[int] = None,
+                      esf_id: Optional[int] = None,
                       db: Session = Depends(get_db), user=Depends(get_current_user)):
-    """Привязать транзакцию к документу."""
+    """Привязать транзакцию к документу или ЭСФ."""
     tx = db.query(models.BankTransaction).filter(models.BankTransaction.id == tx_id).first()
     if not tx:
         raise HTTPException(404, "Операция не найдена")
-    tx.linked_document_id = doc_id
+    if doc_id:
+        tx.linked_document_id = doc_id
+    if esf_id:
+        tx.linked_esf_id = esf_id
+        # Обратная ссылка в ЭСФ
+        esf = db.query(models.ESF).filter(models.ESF.id == esf_id).first()
+        if esf:
+            esf.bank_transaction_id = tx_id
+            esf.linked_payment = True
     tx.status = "matched"
     db.commit()
     return tx_to_dict(tx)
+
+
+# ── Сверка: кандидаты для привязки ─────────────────────────────────────────
+
+def _normalize_name(s: str) -> str:
+    """Убирает юридические формы и нормализует для сравнения."""
+    if not s:
+        return ""
+    prefixes = ["общество с ограниченной ответственностью", "открытое акционерное общество",
+                "закрытое акционерное общество", "акционерное общество",
+                "осоо", "ооо", "оао", "зао", "ао", "нко", "ип ", "чп ", "пао ", "пк "]
+    s = s.lower().strip()
+    for p in prefixes:
+        s = s.replace(p, "").strip()
+    # убираем кавычки
+    s = s.replace('"', '').replace("'", '').replace("«", '').replace("»", '').strip()
+    return s
+
+
+def _score_candidate(tx: models.BankTransaction, amount: float, currency: str,
+                     cp_name: str, cp_inn: str, ref_number: str,
+                     ref_date, already_linked: bool) -> int:
+    """Скоринг одного кандидата. Возвращает 0–100."""
+    if already_linked:
+        return 0  # уже привязан к другой транзакции
+
+    score = 0
+
+    # 1. Сумма (40 баллов)
+    if tx.amount and amount:
+        if abs(tx.amount - amount) < 0.02:
+            score += 40
+        elif abs(tx.amount - amount) / max(tx.amount, amount) < 0.001:
+            score += 30
+
+    # 2. ИНН (35 баллов) — самый надёжный сигнал
+    tx_inn = (tx.counterparty_inn or "").strip()
+    if tx_inn and cp_inn and tx_inn == cp_inn.strip():
+        score += 35
+
+    # 3. Номер документа в назначении (30 баллов)
+    tx_purpose = (tx.purpose or "").lower()
+    if ref_number:
+        ref_clean = ref_number.strip().lstrip("0")
+        if ref_clean and (ref_clean in tx_purpose or
+                          ref_clean in (tx.doc_number or "").lower()):
+            score += 30
+
+    # 4. Имя контрагента (20 баллов)
+    tx_cp = _normalize_name(tx.counterparty or "")
+    doc_cp = _normalize_name(cp_name or "")
+    if tx_cp and doc_cp:
+        if tx_cp == doc_cp:
+            score += 20
+        elif tx_cp in doc_cp or doc_cp in tx_cp:
+            score += 12
+
+    # 5. Дата (10 / 5 / 0 баллов)
+    if ref_date and tx.date:
+        try:
+            ref_dt = ref_date if hasattr(ref_date, "date") else ref_date
+            tx_dt = tx.date
+            days = abs((tx_dt - ref_dt).days) if hasattr(ref_dt, "days") else 999
+        except Exception:
+            days = 999
+        if days <= 7:
+            score += 10
+        elif days <= 30:
+            score += 5
+
+    # 6. Совпадение валюты (+5 штраф за несовпадение)
+    tx_cur = tx.currency or "KGS"
+    if currency and tx_cur != currency:
+        score -= 5
+
+    return max(0, score)
+
+
+@router.get("/transactions/{tx_id}/match-candidates")
+def get_match_candidates(
+    tx_id: int,
+    company_id: int = Query(...),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Топ-5 кандидатов для привязки транзакции (документы + ЭСФ)."""
+    tx = db.query(models.BankTransaction).filter(models.BankTransaction.id == tx_id).first()
+    if not tx:
+        raise HTTPException(404, "Операция не найдена")
+
+    candidates = []
+
+    # ── Документы ─────────────────────────────────────────────────
+    docs = db.query(models.Document).filter(
+        models.Document.company_id == company_id,
+        models.Document.amount.isnot(None),
+    ).all()
+
+    # ИД уже привязанных к другим транзакциям
+    linked_doc_ids = {
+        r[0] for r in db.query(models.BankTransaction.linked_document_id)
+        .filter(models.BankTransaction.linked_document_id.isnot(None),
+                models.BankTransaction.id != tx_id).all()
+    }
+
+    for doc in docs:
+        # Направление: расход → расходный документ, приход → приходный
+        if tx.direction == "out" and doc.doc_type and doc.doc_type.value in ("invoice", "esf", "contract"):
+            pass  # совместимо
+        elif tx.direction == "in" and doc.doc_type and doc.doc_type.value in ("act", "upd", "receipt"):
+            pass
+        # Не фильтруем жёстко по направлению — оставляем на усмотрение скоринга
+
+        score = _score_candidate(
+            tx=tx,
+            amount=doc.amount or 0,
+            currency=doc.currency or "KGS",
+            cp_name=doc.counterparty or "",
+            cp_inn=doc.counterparty_inn or "",
+            ref_number=doc.doc_number or "",
+            ref_date=doc.doc_date,
+            already_linked=doc.id in linked_doc_ids,
+        )
+        if score >= 40:
+            candidates.append({
+                "type": "document",
+                "id": doc.id,
+                "score": score,
+                "confidence": "high" if score >= 80 else "medium",
+                "label": f"{doc.doc_type.value if doc.doc_type else 'Документ'} №{doc.doc_number or '—'} от {doc.doc_date.strftime('%d.%m.%Y') if doc.doc_date else '—'}",
+                "counterparty": doc.counterparty or "—",
+                "amount": doc.amount,
+                "currency": doc.currency or "KGS",
+                "date": doc.doc_date.strftime("%Y-%m-%d") if doc.doc_date else None,
+            })
+
+    # ── ЭСФ ───────────────────────────────────────────────────────
+    esf_list = db.query(models.ESF).filter(
+        models.ESF.company_id == company_id,
+        models.ESF.amount.isnot(None),
+    ).all()
+
+    linked_esf_ids = {
+        r[0] for r in db.query(models.BankTransaction.linked_esf_id)
+        .filter(models.BankTransaction.linked_esf_id.isnot(None),
+                models.BankTransaction.id != tx_id).all()
+    }
+
+    for esf in esf_list:
+        # Направление: расход → входящий ЭСФ (мы платим поставщику)
+        #              приход  → исходящий ЭСФ (покупатель платит нам)
+        if tx.direction == "out":
+            cp_name = esf.supplier_name or ""
+            cp_inn  = esf.supplier_inn  or ""
+        else:
+            cp_name = esf.buyer_name or ""
+            cp_inn  = esf.buyer_inn  or ""
+
+        score = _score_candidate(
+            tx=tx,
+            amount=esf.amount or 0,
+            currency="KGS",
+            cp_name=cp_name,
+            cp_inn=cp_inn,
+            ref_number=esf.esf_number or "",
+            ref_date=esf.esf_date,
+            already_linked=esf.id in linked_esf_ids,
+        )
+        if score >= 40:
+            candidates.append({
+                "type": "esf",
+                "id": esf.id,
+                "score": score,
+                "confidence": "high" if score >= 80 else "medium",
+                "label": f"ЭСФ №{esf.esf_number or '—'} от {esf.esf_date.strftime('%d.%m.%Y') if esf.esf_date else '—'}",
+                "counterparty": cp_name or "—",
+                "amount": esf.amount,
+                "currency": "KGS",
+                "date": esf.esf_date.strftime("%Y-%m-%d") if esf.esf_date else None,
+            })
+
+    # Сортируем по score, топ-5
+    candidates.sort(key=lambda x: x["score"], reverse=True)
+    return candidates[:5]
 
 
 # ── Импорт выписки ─────────────────────────────────────────────────────────
@@ -792,14 +988,16 @@ async def import_statement(
         # Валюта: из файла (если указана явно), иначе из настроек счёта
         tx_currency = row.get("currency") or acc.currency or "KGS"
         tx = models.BankTransaction(
-            account_id  = account_id,
-            date        = row["date"],
-            amount      = row["amount"],
-            currency    = tx_currency,
-            direction   = row["direction"],
-            counterparty= row.get("counterparty", ""),
-            purpose     = row.get("purpose", ""),
-            status      = "unmatched",
+            account_id      = account_id,
+            date            = row["date"],
+            amount          = row["amount"],
+            currency        = tx_currency,
+            direction       = row["direction"],
+            counterparty    = row.get("counterparty", ""),
+            purpose         = row.get("purpose", ""),
+            counterparty_inn= row.get("counterparty_inn", "") or None,
+            doc_number      = row.get("doc_number", "") or None,
+            status          = "unmatched",
         )
         db.add(tx)
         imported += 1

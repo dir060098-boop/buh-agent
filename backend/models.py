@@ -118,7 +118,10 @@ class BankTransaction(Base):
     direction = Column(String)   # in / out
     counterparty = Column(String)
     purpose = Column(String)
+    counterparty_inn = Column(String, nullable=True)   # ИНН контрагента из выписки
+    doc_number = Column(String, nullable=True)          # номер документа из выписки
     linked_document_id = Column(Integer, ForeignKey("documents.id"), nullable=True)
+    linked_esf_id = Column(Integer, ForeignKey("esf.id"), nullable=True)
     status = Column(String, default="unmatched")   # unmatched / matched
     journal_entry_id = Column(Integer, ForeignKey("journal_entries.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
