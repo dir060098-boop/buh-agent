@@ -31,6 +31,13 @@ class TransactionCreate(BaseModel):
     purpose: str = ""
     auto_post: bool = True      # создать проводку в журнале
 
+class TransactionUpdate(BaseModel):
+    date: Optional[str] = None
+    amount: Optional[float] = None
+    direction: Optional[str] = None
+    counterparty: Optional[str] = None
+    purpose: Optional[str] = None
+
 
 # ── Хелперы ────────────────────────────────────────────────────────────────
 
@@ -48,15 +55,29 @@ def account_to_dict(acc, db: Session) -> dict:
     txs = db.query(models.BankTransaction).filter(
         models.BankTransaction.account_id == acc.id
     ).all()
-    balance = compute_balance(acc.opening_balance or 0, txs)
+
+    main_cur = acc.currency or "KGS"
+
+    # Считаем остаток по каждой валюте отдельно
+    by_cur: dict = {}
+    for t in txs:
+        cur = t.currency or "KGS"
+        delta = t.amount if t.direction == "in" else -t.amount
+        by_cur[cur] = by_cur.get(cur, 0.0) + delta
+
+    # Основная валюта счёта включает начальный остаток
+    main_bal = (acc.opening_balance or 0.0) + by_cur.get(main_cur, 0.0)
+    by_cur[main_cur] = main_bal
+
     return {
         "id": acc.id,
         "bank_name": acc.bank_name,
         "account_number": acc.account_number,
-        "currency": acc.currency or "KGS",
+        "currency": main_cur,
         "opening_balance": acc.opening_balance or 0,
         "is_cash": acc.is_cash or False,
-        "balance": round(balance, 2),
+        "balance": round(main_bal, 2),
+        "balances_by_currency": {k: round(v, 2) for k, v in by_cur.items()},
         "tx_count": len(txs),
     }
 
@@ -272,6 +293,7 @@ def add_transaction(
         entry_id = _auto_post(tx, acc, company_id, db)
         if entry_id:
             tx.journal_entry_id = entry_id
+            tx.status = "matched"   # bug fix: auto_post создал проводку → сверено
 
     db.commit()
     db.refresh(tx)
@@ -287,6 +309,75 @@ def delete_transaction(tx_id: int, db: Session = Depends(get_db),
     db.delete(tx)
     db.commit()
     return {"ok": True}
+
+
+@router.patch("/transactions/{tx_id}")
+def update_transaction(
+    tx_id: int,
+    data: TransactionUpdate,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Редактировать поля транзакции."""
+    tx = db.query(models.BankTransaction).filter(models.BankTransaction.id == tx_id).first()
+    if not tx:
+        raise HTTPException(404, "Операция не найдена")
+    if data.date is not None:
+        tx.date = datetime.strptime(data.date, "%Y-%m-%d")
+    if data.amount is not None:
+        tx.amount = data.amount
+    if data.direction is not None:
+        tx.direction = data.direction
+    if data.counterparty is not None:
+        tx.counterparty = data.counterparty
+    if data.purpose is not None:
+        tx.purpose = data.purpose
+    db.commit()
+    db.refresh(tx)
+    return tx_to_dict(tx)
+
+
+@router.post("/{company_id}/auto-post-all")
+def auto_post_all(
+    company_id: int,
+    account_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Авторазноска всех unmatched транзакций без проводки."""
+    accs = db.query(models.BankAccount).filter(
+        models.BankAccount.company_id == company_id
+    ).all()
+    acc_ids = [a.id for a in accs]
+    if not acc_ids:
+        return {"ok": True, "posted": 0, "skipped": 0, "total": 0}
+    acc_map = {a.id: a for a in accs}
+
+    q = db.query(models.BankTransaction).filter(
+        models.BankTransaction.account_id.in_(acc_ids),
+        models.BankTransaction.status == "unmatched",
+        models.BankTransaction.journal_entry_id == None,  # noqa: E711
+    )
+    if account_id:
+        q = q.filter(models.BankTransaction.account_id == account_id)
+
+    txs = q.order_by(models.BankTransaction.date.asc()).all()
+    posted = skipped = 0
+    for tx in txs:
+        acc = acc_map.get(tx.account_id)
+        if not acc:
+            skipped += 1
+            continue
+        entry_id = _auto_post(tx, acc, company_id, db)
+        if entry_id:
+            tx.journal_entry_id = entry_id
+            tx.status = "matched"
+            posted += 1
+        else:
+            skipped += 1
+
+    db.commit()
+    return {"ok": True, "posted": posted, "skipped": skipped, "total": len(txs)}
 
 
 @router.patch("/transactions/{tx_id}/match")
@@ -360,7 +451,8 @@ def _parse_optima_xlsx(data: bytes) -> list[dict]:
         s = str(val).strip()
         return "" if s.lower() in ("nan", "none", "") else s
 
-    def _col_idx(headers: list, exact: list = (), contains: list = ()) -> Optional[int]:
+    def _col_idx(headers: list, exact: list = (), contains: list = (), default=None):
+        """Возвращает индекс колонки. default используется вместо None — безопасно при индексе 0."""
         for kw in exact:
             for j, h in enumerate(headers):
                 if h == kw:
@@ -369,7 +461,7 @@ def _parse_optima_xlsx(data: bytes) -> list[dict]:
             for j, h in enumerate(headers):
                 if kw in h:
                     return j
-        return None
+        return default
 
     rows: list[dict] = []
 
@@ -405,7 +497,7 @@ def _parse_optima_xlsx(data: bytes) -> list[dict]:
 
         headers = [str(v).lower().strip() for v in df.iloc[header_row].tolist()]
 
-        col_date   = _col_idx(headers, exact=['дата исполнения'], contains=['дата']) or 0
+        col_date   = _col_idx(headers, exact=['дата исполнения'], contains=['дата'], default=0)
         col_debit  = _col_idx(headers, contains=['дебет'])
         col_credit = _col_idx(headers, contains=['кредит'])
         col_cp     = _col_idx(headers, exact=['отправитель / получатель'], contains=['получатель'])

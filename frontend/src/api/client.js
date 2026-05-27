@@ -100,8 +100,12 @@ export const bank = {
     fd.append('file', file)
     return api.post(`/api/bank/${companyId}/import`, fd, { headers: { 'Content-Type': 'multipart/form-data' } })
   },
-  clearTransactions: (companyId, accountId) =>
+  clearTransactions:  (companyId, accountId) =>
     api.delete(`/api/bank/${companyId}/accounts/${accountId}/transactions`),
+  updateTransaction:  (txId, data)           => api.patch(`/api/bank/transactions/${txId}`, data),
+  autoPostAll:        (companyId, accountId) =>
+    api.post(`/api/bank/${companyId}/auto-post-all`, null,
+      { params: accountId ? { account_id: accountId } : {} }),
 }
 
 export const salary = {

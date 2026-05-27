@@ -19,8 +19,9 @@ const SEL = { background: 'var(--surface)', border: '1.5px solid var(--border)',
 const INP = { ...SEL, cursor: 'text', width: '100%', boxSizing: 'border-box' }
 const LBL = { display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }
 
-const EMPTY_TX = { account_id: '', date: new Date().toISOString().slice(0, 10), amount: '', direction: 'out', counterparty: '', purpose: '', auto_post: true }
+const EMPTY_TX  = { account_id: '', date: new Date().toISOString().slice(0, 10), amount: '', direction: 'out', counterparty: '', purpose: '', auto_post: true }
 const EMPTY_ACC = { bank_name: '', account_number: '', currency: 'KGS', opening_balance: '', is_cash: false }
+const EMPTY_EDIT = { id: null, date: '', amount: '', direction: 'out', counterparty: '', purpose: '' }
 
 export default function Bank() {
   const { companyId } = useParams()
@@ -47,8 +48,11 @@ export default function Bank() {
   const [importResult, setImportResult] = useState(null)
   const [saving, setSaving]           = useState(false)
   const [importing, setImporting]     = useState(false)
+  const [autoPosting, setAutoPosting] = useState(false)
+  const [autoPostResult, setAutoPostResult] = useState(null)
   const [dragOver, setDragOver]       = useState(false)
   const [confirmState, setConfirmState] = useState(null)
+  const [editTx, setEditTx]           = useState(null)   // null = закрыт
   const fileInputRef = useRef(null)
 
   useEffect(() => {
@@ -144,6 +148,40 @@ export default function Bank() {
     })
   }
 
+  // ── Редактировать транзакцию ───────────────────────────────────────────
+  function openEditTx(tx) {
+    setEditTx({ id: tx.id, date: tx.date, amount: String(tx.amount), direction: tx.direction, counterparty: tx.counterparty || '', purpose: tx.purpose || '' })
+  }
+
+  async function handleSaveEdit() {
+    if (!editTx?.id) return
+    setSaving(true)
+    try {
+      await bank.updateTransaction(editTx.id, {
+        date: editTx.date,
+        amount: parseFloat(editTx.amount),
+        direction: editTx.direction,
+        counterparty: editTx.counterparty,
+        purpose: editTx.purpose,
+      })
+      setEditTx(null)
+      load()
+    } finally { setSaving(false) }
+  }
+
+  // ── Авторазноска unmatched ─────────────────────────────────────────────
+  async function handleAutoPostAll() {
+    setAutoPosting(true)
+    setAutoPostResult(null)
+    try {
+      const r = await bank.autoPostAll(companyId, activeAcc || undefined)
+      setAutoPostResult(r.data)
+      load()
+    } catch (e) {
+      setAutoPostResult({ error: e?.response?.data?.detail || 'Ошибка разноски' })
+    } finally { setAutoPosting(false) }
+  }
+
   // ── Импорт выписки ──────────────────────────────────────────────────────
   async function handleImport() {
     if (!importAccId || !importFile) return
@@ -180,7 +218,7 @@ export default function Bank() {
       {/* Шапка модуля */}
       <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '10px 24px', display: 'flex', alignItems: 'center', gap: 12, boxShadow: 'var(--shadow-sm)' }}>
         <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--text)', flex: 1 }}>🏦 Банк и касса</div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button onClick={() => { setShowAddAcc(true); setAccForm(EMPTY_ACC) }}
             style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--text)' }}>
             + Счёт
@@ -190,6 +228,13 @@ export default function Bank() {
             style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: accounts.length ? 'pointer' : 'not-allowed', fontFamily: 'inherit', color: 'var(--text)', opacity: accounts.length ? 1 : 0.5 }}>
             📥 Загрузить выписку
           </button>
+          {data.summary?.unmatched > 0 && (
+            <button onClick={handleAutoPostAll} disabled={autoPosting}
+              title={`Авторазноска ${data.summary.unmatched} операций без проводки`}
+              style={{ background: 'var(--ai-light, #f0f4ff)', border: '1px solid var(--ai, #6366f1)', borderRadius: 'var(--radius-sm)', padding: '8px 14px', fontSize: 13, fontWeight: 700, cursor: autoPosting ? 'not-allowed' : 'pointer', fontFamily: 'inherit', color: 'var(--ai, #6366f1)', opacity: autoPosting ? 0.6 : 1 }}>
+              {autoPosting ? '⏳ Разноска...' : `⚡ Разнести ${data.summary.unmatched}`}
+            </button>
+          )}
           <button onClick={() => { setShowAddTx(true); setTxForm({ ...EMPTY_TX, account_id: activeAcc || accounts[0]?.id || '' }) }}
             disabled={accounts.length === 0}
             style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: accounts.length ? 'pointer' : 'not-allowed', fontFamily: 'inherit', opacity: accounts.length ? 1 : 0.5 }}>
@@ -247,6 +292,15 @@ export default function Bank() {
                 <div style={{ fontSize: 19, fontWeight: 800, color: acc.balance >= 0 ? 'var(--success)' : 'var(--error)' }}>
                   {fmt(acc.balance, acc.currency)}
                 </div>
+                {/* Дополнительные валюты */}
+                {acc.balances_by_currency && Object.entries(acc.balances_by_currency)
+                  .filter(([cur]) => cur !== acc.currency)
+                  .map(([cur, bal]) => (
+                    <div key={cur} style={{ fontSize: 11, fontWeight: 700, color: bal >= 0 ? 'var(--success)' : 'var(--error)', opacity: 0.85 }}>
+                      {fmt(bal, cur)}
+                    </div>
+                  ))
+                }
                 <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 2 }}>{acc.tx_count} операций</div>
               </div>
             ))}
@@ -268,6 +322,14 @@ export default function Bank() {
                 <div style={{ fontSize: 11, color: 'var(--text3)' }}>{s.label}</div>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Результат авторазноски */}
+        {autoPostResult && (
+          <div style={{ marginBottom: 12, padding: '10px 14px', borderRadius: 'var(--radius-sm)', border: '1px solid', ...(autoPostResult.error ? { background: '#fee2e2', borderColor: '#fca5a5', color: '#991b1b' } : { background: 'var(--success-light,#d1fae5)', borderColor: 'var(--success)', color: 'var(--success)' }), fontSize: 13, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span>{autoPostResult.error ? `❌ ${autoPostResult.error}` : `✅ Разнесено: ${autoPostResult.posted} из ${autoPostResult.total} операций${autoPostResult.skipped > 0 ? ` (пропущено ${autoPostResult.skipped})` : ''}`}</span>
+            <button onClick={() => setAutoPostResult(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, lineHeight: 1, color: 'inherit', opacity: 0.6 }}>×</button>
           </div>
         )}
 
@@ -357,6 +419,11 @@ export default function Bank() {
                         📒
                       </button>
                     )}
+                    <button onClick={() => openEditTx(tx)}
+                      title="Редактировать"
+                      style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '3px 6px', fontSize: 11, cursor: 'pointer', color: 'var(--text3)' }}>
+                      ✏️
+                    </button>
                     <button onClick={() => handleDeleteTx(tx.id, tx.amount, tx.currency)}
                       style={{ background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '3px 6px', fontSize: 11, cursor: 'pointer', color: 'var(--error)' }}>
                       ✕
@@ -504,6 +571,58 @@ export default function Bank() {
 
       {/* Модал подтверждения */}
       <ConfirmModal state={confirmState} onClose={() => setConfirmState(null)} />
+
+      {/* ── Модал: редактировать операцию ──────────────────────────────── */}
+      {editTx && (
+        <div onClick={() => setEditTx(null)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}>
+          <div onClick={e => e.stopPropagation()}
+            style={{ background: 'var(--surface)', borderRadius: 'var(--radius-lg)', width: '100%', maxWidth: 460, boxShadow: 'var(--shadow-lg)', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)', fontWeight: 800, fontSize: 15 }}>
+              ✏️ Редактировать операцию
+            </div>
+            <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {/* Тип */}
+              <div style={{ display: 'flex', gap: 8 }}>
+                {[{ v: 'in', l: '↓ Приход', color: 'var(--success)' }, { v: 'out', l: '↑ Расход', color: 'var(--error)' }].map(({ v, l, color }) => (
+                  <button key={v} onClick={() => setEditTx(f => ({ ...f, direction: v }))}
+                    style={{ flex: 1, padding: '8px 0', borderRadius: 'var(--radius-sm)', border: `2px solid ${editTx.direction === v ? color : 'var(--border)'}`, background: editTx.direction === v ? color + '18' : 'var(--surface2)', color: editTx.direction === v ? color : 'var(--text)', fontWeight: 800, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit' }}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 130px', gap: 10 }}>
+                <div>
+                  <label style={LBL}>Дата</label>
+                  <input type="date" value={editTx.date} onChange={e => setEditTx(f => ({ ...f, date: e.target.value }))} style={INP} />
+                </div>
+                <div>
+                  <label style={LBL}>Сумма</label>
+                  <input type="number" value={editTx.amount} onChange={e => setEditTx(f => ({ ...f, amount: e.target.value }))} style={INP} />
+                </div>
+              </div>
+              <div>
+                <label style={LBL}>Контрагент</label>
+                <input value={editTx.counterparty} onChange={e => setEditTx(f => ({ ...f, counterparty: e.target.value }))} style={INP} />
+              </div>
+              <div>
+                <label style={LBL}>Назначение платежа</label>
+                <input value={editTx.purpose} onChange={e => setEditTx(f => ({ ...f, purpose: e.target.value }))} style={INP} />
+              </div>
+            </div>
+            <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
+              <button onClick={handleSaveEdit} disabled={saving}
+                style={{ flex: 2, background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', padding: 12, fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                {saving ? 'Сохранение...' : 'Сохранить'}
+              </button>
+              <button onClick={() => setEditTx(null)}
+                style={{ flex: 1, background: 'none', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: 12, fontSize: 13, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--text2)' }}>
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Модал: импорт выписки ──────────────────────────────────────── */}
       {showImport && (
