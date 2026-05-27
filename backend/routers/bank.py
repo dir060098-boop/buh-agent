@@ -399,8 +399,111 @@ def _parse_optima_xlsx(data: bytes) -> list[dict]:
     return rows
 
 
+def _detect_pdf_currency(text: str) -> str:
+    """Извлекает валюту из заголовка выписки Оптима Банк."""
+    m = re.search(r'Код валюты:\s*\d+\s+(.+)', text)
+    if m:
+        cur_text = m.group(1).strip().upper()
+        if 'ДОЛЛАР' in cur_text:  return "USD"
+        if 'ЕВРО'   in cur_text:  return "EUR"
+        if 'РУБЛ'   in cur_text:  return "RUB"
+        if 'СОМ'    in cur_text:  return "KGS"
+    return "KGS"
+
+
+def _parse_optima_pdf(data: bytes) -> list[dict]:
+    """Парсит выписку Оптима Банк (PDF).
+    Та же структура что XLSX: заголовок в первой таблице, затем данные по страницам.
+    Суммы в формате '2 982,86' (европейский: пробел — тысячи, запятая — дробная).
+    """
+    try:
+        import pdfplumber
+    except ImportError:
+        raise ValueError("pdfplumber не установлен: pip install pdfplumber")
+
+    currency = "KGS"
+    col_date = col_debit = col_credit = col_cp = col_basis = None
+    header_found = False
+
+    def parse_amount(s: str) -> float:
+        s = s.replace('\xa0', '').replace(' ', '').replace(',', '.')
+        try:
+            return float(s) if s else 0.0
+        except ValueError:
+            return 0.0
+
+    rows = []
+    with pdfplumber.open(io.BytesIO(data)) as pdf:
+        # Валюта из текста первой страницы
+        currency = _detect_pdf_currency(pdf.pages[0].extract_text() or "")
+
+        for page in pdf.pages:
+            for table in page.extract_tables():
+                for row in table:
+                    if not row:
+                        continue
+                    # Нормализуем ячейки: убираем переносы строк
+                    cells = [str(c or '').replace('\n', ' ').strip() for c in row]
+
+                    # ── Строка заголовков ──────────────────────────────────
+                    if not header_found:
+                        h = [c.lower() for c in cells]
+                        if any('дебет' in x for x in h):
+                            col_date   = next((j for j, x in enumerate(h) if 'дата' in x), 0)
+                            col_debit  = next((j for j, x in enumerate(h) if 'дебет' in x), None)
+                            col_credit = next((j for j, x in enumerate(h) if 'кредит' in x), None)
+                            # Контрагент — точно 'отправитель / получатель', не 'банк отправителя'
+                            col_cp = next(
+                                (j for j, x in enumerate(h) if x == 'отправитель / получатель'), None
+                            )
+                            if col_cp is None:
+                                col_cp = next(
+                                    (j for j, x in enumerate(h) if 'получатель' in x and j > 3), None
+                                )
+                            col_basis = next((j for j, x in enumerate(h) if 'основание' in x), None)
+                            header_found = True
+                            continue
+
+                    if not header_found or col_debit is None:
+                        continue
+
+                    # ── Итоговые строки — пропускаем ──────────────────────
+                    first = cells[0].lower() if cells else ''
+                    if any(kw in first for kw in ('фактический', 'планируемый', 'итого')):
+                        continue
+
+                    # ── Парсим дату ───────────────────────────────────────
+                    date_str = cells[col_date] if col_date < len(cells) else ''
+                    date_str = date_str.split(' ')[0]  # убираем время вида '15.12.2025 11:07:51'
+                    try:
+                        d = datetime.strptime(date_str, "%d.%m.%Y")
+                    except Exception:
+                        continue
+
+                    debit  = parse_amount(cells[col_debit])  if col_debit  < len(cells) else 0.0
+                    credit = parse_amount(cells[col_credit]) if col_credit < len(cells) else 0.0
+
+                    if debit == 0 and credit == 0:
+                        continue
+
+                    cp      = cells[col_cp]    if col_cp    is not None and col_cp    < len(cells) else ""
+                    purpose = cells[col_basis] if col_basis is not None and col_basis < len(cells) else ""
+
+                    if debit > 0:
+                        rows.append({"date": d, "amount": debit, "direction": "out",
+                                     "counterparty": cp, "purpose": purpose,
+                                     "counterparty_inn": "", "doc_number": "", "currency": currency})
+                    if credit > 0:
+                        rows.append({"date": d, "amount": credit, "direction": "in",
+                                     "counterparty": cp, "purpose": purpose,
+                                     "counterparty_inn": "", "doc_number": "", "currency": currency})
+    return rows
+
+
 def _parse_demir_pdf(data: bytes) -> list[dict]:
-    """Парсит выписку Демир Банк (PDF). Один столбец суммы — положительная=приход, отрицательная=расход."""
+    """Парсит выписку Демир Банк (PDF). Один столбец суммы — положительная=приход, отрицательная=расход.
+    Числа-суммы: не более 10 цифр до разделителя (чтобы не путать с номерами счетов 16 цифр).
+    """
     try:
         import pdfplumber
     except ImportError:
@@ -409,51 +512,42 @@ def _parse_demir_pdf(data: bytes) -> list[dict]:
     rows = []
     with pdfplumber.open(io.BytesIO(data)) as pdf:
         for page in pdf.pages:
-            tables = page.extract_tables()
-            for table in tables:
+            for table in page.extract_tables():
                 for row in table:
                     if not row:
                         continue
-                    # Ищем строки с датой в формате DD.MM.YYYY
                     date_val = None
                     amount_val = None
-                    counterparty = ""
-                    purpose = ""
 
                     for cell in row:
                         if not cell:
                             continue
                         cell_s = str(cell).strip()
-                        # Дата
+                        # Дата DD.MM.YYYY
                         m = re.match(r'(\d{2}\.\d{2}\.\d{4})', cell_s)
                         if m and date_val is None:
                             try:
                                 date_val = datetime.strptime(m.group(1), "%d.%m.%Y")
                             except Exception:
                                 pass
-                        # Сумма (число с пробелами/запятой/точкой, может быть отрицательным)
-                        amount_m = re.match(r'^(-?[\d\s]+[,.]?\d*)$', cell_s.replace(' ', '').replace('\xa0', ''))
-                        if amount_m and amount_val is None and date_val is not None:
-                            try:
-                                clean = cell_s.replace(' ', '').replace('\xa0', '').replace(',', '.')
-                                amount_val = float(clean)
-                            except Exception:
-                                pass
+                        # Сумма: не более 10 цифр до разделителя (чтобы не считать номера счетов)
+                        if date_val is not None and amount_val is None:
+                            clean = cell_s.replace(' ', '').replace('\xa0', '')
+                            m2 = re.match(r'^(-?\d{1,10}[,.]?\d{0,2})$', clean)
+                            if m2:
+                                try:
+                                    amount_val = float(clean.replace(',', '.'))
+                                except Exception:
+                                    pass
 
                     if date_val is None or amount_val is None or amount_val == 0:
                         continue
 
                     direction = "in" if amount_val > 0 else "out"
-                    rows.append({
-                        "date": date_val,
-                        "amount": abs(amount_val),
-                        "direction": direction,
-                        "counterparty": counterparty,
-                        "purpose": purpose,
-                        "counterparty_inn": "",
-                        "doc_number": "",
-                        "currency": "KGS",
-                    })
+                    rows.append({"date": date_val, "amount": abs(amount_val),
+                                 "direction": direction, "counterparty": "",
+                                 "purpose": "", "counterparty_inn": "",
+                                 "doc_number": "", "currency": "KGS"})
     return rows
 
 
@@ -519,7 +613,14 @@ async def import_statement(
         if fname.endswith(".xlsx") or fname.endswith(".xls"):
             tx_rows = _parse_optima_xlsx(data)
         elif fname.endswith(".pdf"):
-            tx_rows = _parse_demir_pdf(data)
+            # Детектируем формат по содержимому
+            import pdfplumber as _plumber
+            with _plumber.open(io.BytesIO(data)) as _pdf:
+                _first_text = _pdf.pages[0].extract_text() or ""
+            if "Справка-выписка" in _first_text:
+                tx_rows = _parse_optima_pdf(data)
+            else:
+                tx_rows = _parse_demir_pdf(data)
         else:
             raise HTTPException(400, "Поддерживаются файлы XLSX и PDF")
     except ValueError as e:
@@ -534,11 +635,13 @@ async def import_statement(
             skipped += 1
             continue
 
+        # Валюта: из файла (если указана явно), иначе из настроек счёта
+        tx_currency = row.get("currency") or acc.currency or "KGS"
         tx = models.BankTransaction(
             account_id  = account_id,
             date        = row["date"],
             amount      = row["amount"],
-            currency    = acc.currency or row.get("currency", "KGS"),
+            currency    = tx_currency,
             direction   = row["direction"],
             counterparty= row.get("counterparty", ""),
             purpose     = row.get("purpose", ""),
