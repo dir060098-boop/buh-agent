@@ -305,53 +305,45 @@ def match_transaction(tx_id: int, doc_id: int,
 # ── Импорт выписки ─────────────────────────────────────────────────────────
 
 def _parse_optima_xlsx(data: bytes) -> list[dict]:
-    """Парсит выписку Оптима Банк (XLSX)."""
+    """Парсит выписку Оптима Банк (XLSX).
+    Поддерживает мультивалютные выписки: один лист может содержать
+    несколько секций — каждая начинается со строки 'Код валюты: NNN Название'.
+    """
     import pandas as pd
+
+    # Коды валют ISO 4217 → код валюты
+    CURRENCY_CODES = {
+        "417": "KGS", "840": "USD", "978": "EUR",
+        "643": "RUB", "826": "GBP", "156": "CNY", "398": "KZT",
+    }
+
+    def _detect_currency(row_vals: list) -> Optional[str]:
+        """Если строка содержит 'Код валюты:' — возвращает валюту."""
+        joined = " ".join(str(v) for v in row_vals if str(v) != "nan").lower()
+        if "код валюты" not in joined:
+            return None
+        for code, cur in CURRENCY_CODES.items():
+            if code in joined:
+                return cur
+        # Фоллбэк по названию
+        if "сом" in joined or "kgs" in joined:       return "KGS"
+        if "доллар" in joined or "usd" in joined:    return "USD"
+        if "евро" in joined or "eur" in joined:      return "EUR"
+        if "рубл" in joined or "rub" in joined:      return "RUB"
+        if "фунт" in joined or "gbp" in joined:      return "GBP"
+        if "юань" in joined or "cny" in joined:      return "CNY"
+        if "тенге" in joined or "kzt" in joined:     return "KZT"
+        return "KGS"
+
     df = pd.read_excel(io.BytesIO(data), header=None)
 
-    # Ищем строку заголовков колонок (содержит 'Дебет')
-    header_row = None
-    for i in range(min(20, len(df))):
-        row_vals = [str(v) for v in df.iloc[i].tolist()]
-        if any('дебет' in v.lower() for v in row_vals):
-            header_row = i
-            break
-    if header_row is None:
-        raise ValueError("Не найдена строка заголовков (Дебет/Кредит)")
-
-    # Определяем индексы нужных колонок — точное совпадение первично
-    headers = [str(v).lower().strip() for v in df.iloc[header_row].tolist()]
-    def col_exact(keyword):
-        """Точное совпадение."""
-        for j, h in enumerate(headers):
-            if h == keyword:
-                return j
-        return None
-    def col_contains(keyword):
-        """Частичное совпадение — fallback."""
-        for j, h in enumerate(headers):
-            if keyword in h:
-                return j
-        return None
-
-    # Дата — ищем точно 'дата исполнения', затем любую с 'дата'
-    col_date   = col_exact('дата исполнения') or col_contains('дата') or 0
-    col_debit  = col_contains('дебет')
-    col_credit = col_contains('кредит')
-    # Контрагент — точно 'отправитель / получатель', иначе первая содержащая 'получатель'
-    col_cp     = col_exact('отправитель / получатель') or col_contains('получатель')
-    col_inn    = col_contains('инн')
-    col_basis  = col_contains('основание')
-    col_docnum = col_exact('номер документа') or col_contains('номер')
-
-    if col_debit is None or col_credit is None:
-        raise ValueError("Не найдены колонки Дебет/Кредит")
-
     def _parse_date(val) -> Optional[datetime]:
-        if pd.isna(val):
-            return None
+        try:
+            if pd.isna(val):
+                return None
+        except Exception:
+            pass
         if isinstance(val, str):
-            # Убираем время если есть: '11.05.2026\n12:54:24' → '11.05.2026'
             date_part = val.strip().split('\n')[0].split(' ')[0]
             try:
                 return datetime.strptime(date_part, "%d.%m.%Y")
@@ -368,34 +360,104 @@ def _parse_optima_xlsx(data: bytes) -> list[dict]:
         s = str(val).strip()
         return "" if s.lower() in ("nan", "none", "") else s
 
-    rows = []
-    for i in range(header_row + 1, len(df)):
-        row = df.iloc[i]
-        d = _parse_date(row.iloc[col_date])
-        if d is None:
+    def _col_idx(headers: list, exact: list = (), contains: list = ()) -> Optional[int]:
+        for kw in exact:
+            for j, h in enumerate(headers):
+                if h == kw:
+                    return j
+        for kw in contains:
+            for j, h in enumerate(headers):
+                if kw in h:
+                    return j
+        return None
+
+    rows: list[dict] = []
+
+    # ── Находим все секции валют ──────────────────────────────────────────────
+    # Секция = строка "Код валюты: ..." + следующая за ней строка заголовков (Дебет)
+    # Данные секции идут до следующей секции или конца файла.
+
+    # Собираем индексы строк-маркеров и строк-заголовков
+    section_starts: list[tuple[int, str]] = []  # (header_row_index, currency)
+    pending_currency: Optional[str] = None
+
+    for i in range(len(df)):
+        row_vals = df.iloc[i].tolist()
+        cur = _detect_currency(row_vals)
+        if cur is not None:
+            pending_currency = cur
             continue
+        # Строка заголовков: содержит 'дебет'
+        low = [str(v).lower() for v in row_vals]
+        if any('дебет' in v for v in low):
+            currency = pending_currency or "KGS"
+            section_starts.append((i, currency))
+            pending_currency = None
 
-        v_debit  = row.iloc[col_debit]
-        v_credit = row.iloc[col_credit]
-        debit  = float(v_debit)  if not pd.isna(v_debit)  else 0.0
-        credit = float(v_credit) if not pd.isna(v_credit) else 0.0
+    if not section_starts:
+        raise ValueError("Не найдена строка заголовков (Дебет/Кредит)")
 
-        if debit == 0 and credit == 0:
-            continue
+    # ── Парсим каждую секцию ──────────────────────────────────────────────────
+    section_starts.append((len(df), ""))  # sentinel
 
-        counterparty = _clean(row.iloc[col_cp])    if col_cp    is not None else ""
-        inn          = _clean(row.iloc[col_inn])   if col_inn   is not None else ""
-        purpose      = _clean(row.iloc[col_basis]) if col_basis is not None else ""
-        doc_num      = _clean(row.iloc[col_docnum]) if col_docnum is not None else ""
+    for sec_idx, (header_row, currency) in enumerate(section_starts[:-1]):
+        next_header = section_starts[sec_idx + 1][0]
 
-        if debit > 0:
-            rows.append({"date": d, "amount": debit,  "direction": "out",
-                         "counterparty": counterparty, "purpose": purpose,
-                         "counterparty_inn": inn, "doc_number": doc_num, "currency": "KGS"})
-        if credit > 0:
-            rows.append({"date": d, "amount": credit, "direction": "in",
-                         "counterparty": counterparty, "purpose": purpose,
-                         "counterparty_inn": inn, "doc_number": doc_num, "currency": "KGS"})
+        headers = [str(v).lower().strip() for v in df.iloc[header_row].tolist()]
+
+        col_date   = _col_idx(headers, exact=['дата исполнения'], contains=['дата']) or 0
+        col_debit  = _col_idx(headers, contains=['дебет'])
+        col_credit = _col_idx(headers, contains=['кредит'])
+        col_cp     = _col_idx(headers, exact=['отправитель / получатель'], contains=['получатель'])
+        col_inn    = _col_idx(headers, contains=['инн'])
+        col_basis  = _col_idx(headers, contains=['основание'])
+        col_docnum = _col_idx(headers, exact=['номер документа'], contains=['номер'])
+
+        if col_debit is None or col_credit is None:
+            continue  # пропускаем секцию без дебет/кредит
+
+        for i in range(header_row + 1, next_header):
+            row = df.iloc[i]
+            row_vals = row.tolist()
+
+            # Пропускаем строки-маркеры следующей секции
+            if _detect_currency(row_vals) is not None:
+                break
+
+            d = _parse_date(row.iloc[col_date])
+            if d is None:
+                continue
+
+            v_debit  = row.iloc[col_debit]
+            v_credit = row.iloc[col_credit]
+            try:
+                debit  = float(v_debit)  if not pd.isna(v_debit)  else 0.0
+            except Exception:
+                debit = 0.0
+            try:
+                credit = float(v_credit) if not pd.isna(v_credit) else 0.0
+            except Exception:
+                credit = 0.0
+
+            if debit == 0 and credit == 0:
+                continue
+
+            counterparty = _clean(row.iloc[col_cp])     if col_cp     is not None else ""
+            inn          = _clean(row.iloc[col_inn])    if col_inn     is not None else ""
+            purpose      = _clean(row.iloc[col_basis])  if col_basis   is not None else ""
+            doc_num      = _clean(row.iloc[col_docnum]) if col_docnum  is not None else ""
+
+            if debit > 0:
+                rows.append({"date": d, "amount": debit, "direction": "out",
+                             "counterparty": counterparty, "purpose": purpose,
+                             "counterparty_inn": inn, "doc_number": doc_num,
+                             "currency": currency})
+            if credit > 0:
+                rows.append({"date": d, "amount": credit, "direction": "in",
+                             "counterparty": counterparty, "purpose": purpose,
+                             "counterparty_inn": inn, "doc_number": doc_num,
+                             "currency": currency})
+
     return rows
 
 
