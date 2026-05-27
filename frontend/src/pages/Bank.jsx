@@ -47,6 +47,7 @@ export default function Bank() {
   const [importResult, setImportResult] = useState(null)
   const [saving, setSaving]           = useState(false)
   const [importing, setImporting]     = useState(false)
+  const [dragOver, setDragOver]       = useState(false)
   const [confirmState, setConfirmState] = useState(null)
   const fileInputRef = useRef(null)
 
@@ -539,28 +540,46 @@ export default function Bank() {
                 <label style={LBL}>Файл выписки (XLSX или PDF) *</label>
                 <div
                   onClick={() => fileInputRef.current?.click()}
+                  onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+                  onDragLeave={() => setDragOver(false)}
+                  onDrop={e => {
+                    e.preventDefault()
+                    setDragOver(false)
+                    const f = e.dataTransfer.files?.[0]
+                    if (f) { setImportFile(f); setImportResult(null) }
+                  }}
                   style={{
-                    border: `2px dashed ${importFile ? 'var(--accent)' : 'var(--border)'}`,
+                    border: `2px dashed ${dragOver ? 'var(--accent)' : importFile ? 'var(--accent)' : 'var(--border)'}`,
                     borderRadius: 'var(--radius)',
                     padding: '20px 16px',
                     textAlign: 'center',
                     cursor: 'pointer',
-                    background: importFile ? 'var(--accent-light)' : 'var(--surface2)',
+                    background: dragOver ? 'var(--accent-light)' : importFile ? 'var(--accent-light)' : 'var(--surface2)',
                     transition: 'border-color 0.15s, background 0.15s',
+                    userSelect: 'none',
                   }}>
                   {importFile ? (
                     <>
                       <div style={{ fontSize: 22, marginBottom: 4 }}>📄</div>
                       <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>{importFile.name}</div>
                       <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
-                        {(importFile.size / 1024).toFixed(0)} KB — нажмите, чтобы изменить
+                        {(importFile.size / 1024).toFixed(0)} KB · нажмите или перетащите другой файл
                       </div>
+                    </>
+                  ) : dragOver ? (
+                    <>
+                      <div style={{ fontSize: 28, marginBottom: 6 }}>📂</div>
+                      <div style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 700 }}>Отпустите файл</div>
                     </>
                   ) : (
                     <>
                       <div style={{ fontSize: 28, marginBottom: 6 }}>☁️</div>
-                      <div style={{ fontSize: 13, color: 'var(--text2)', fontWeight: 600 }}>Нажмите для выбора файла</div>
-                      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 3 }}>XLSX — Оптима Банк · PDF — Демир Банк</div>
+                      <div style={{ fontSize: 13, color: 'var(--text2)', fontWeight: 600 }}>Перетащите файл или нажмите для выбора</div>
+                      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, lineHeight: 1.6 }}>
+                        Оптима Банк: <b>XLSX</b> или <b>PDF</b>
+                        <span style={{ margin: '0 6px', opacity: 0.4 }}>·</span>
+                        Демир Банк: <b>PDF</b>
+                      </div>
                     </>
                   )}
                   <input
