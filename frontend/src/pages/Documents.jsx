@@ -151,7 +151,7 @@ export default function Documents() {
             <div style={{ padding: 40, textAlign: 'center', color: 'var(--text3)', fontSize: 13 }}>Загрузка...</div>
           ) : docs.length === 0 ? (
             <div style={{ padding: 40, textAlign: 'center', color: 'var(--text3)', fontSize: 13 }}>
-              {search || docType || postingStatus || dateFrom || dateTo
+              {search || docType || dateFrom || dateTo
                 ? 'По фильтрам ничего не найдено'
                 : 'Документов пока нет — загрузите первый через Сканер'}
             </div>
