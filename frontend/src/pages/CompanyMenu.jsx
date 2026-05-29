@@ -5,7 +5,7 @@ import { companies } from '../api/client'
 const SECTIONS = [
   { icon:'📷', title:'Сканер первички',  desc:'AI распознаёт документы',   path:'scanner',  badge:null },
   { icon:'📒', title:'Журнал проводок',  desc:'Разноска по счетам КР',      path:'journal',  badge:'journal_count' },
-  { icon:'📄', title:'Документы',        desc:'Реестр входящих документов', path:'documents',badge:'pending_docs' },
+  { icon:'🗂', title:'Архив',             desc:'Архив документов',           path:'documents',badge:null },
   { icon:'🏦', title:'Банк и касса',     desc:'Выписки и сверка',           path:'bank',     badge:null },
   { icon:'📋', title:'ЭСФ',             desc:'Входящие и расхождения',     path:'esf',      badge:null },
   { icon:'👥', title:'Зарплата и кадры', desc:'Сотрудники и расчёты',       path:'salary',   badge:null },
