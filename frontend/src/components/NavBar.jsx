@@ -15,7 +15,6 @@ const MODULES = [
 export default function NavBar({ companyId, current }) {
   const navigate = useNavigate()
   const [company, setCompany] = useState(null)
-  const [hover, setHover] = useState(null)
 
   useEffect(() => {
     companies.get(companyId).then(r => setCompany(r.data)).catch(() => {})
@@ -24,15 +23,26 @@ export default function NavBar({ companyId, current }) {
   return (
     <>
       <style>{`
+        /* ── Обёртка: 3-колоночный grid ──────────────────────────── */
         .nb-wrap {
           position: sticky; top: 0; z-index: 50;
           height: 48px;
           background: var(--surface);
           border-bottom: 1px solid var(--border);
           box-shadow: 0 1px 6px rgba(0,0,0,0.07);
-          display: flex; align-items: center;
-          padding: 0 12px; gap: 4px;
           font-family: Manrope, sans-serif;
+
+          display: grid;
+          grid-template-columns: 200px 1fr 200px;
+          align-items: center;
+          padding: 0 8px;
+          box-sizing: border-box;
+        }
+
+        /* ── Левая: название компании (фиксированная ширина) ─────── */
+        .nb-left {
+          display: flex; align-items: center;
+          min-width: 0;                 /* важно для ellipsis внутри grid */
         }
         .nb-company {
           display: flex; align-items: center; gap: 6px;
@@ -42,22 +52,30 @@ export default function NavBar({ companyId, current }) {
           color: var(--text2);
           cursor: pointer;
           white-space: nowrap;
-          flex-shrink: 0;
           background: transparent;
           transition: background-color 0.15s, color 0.15s;
-          max-width: 180px; overflow: hidden; text-overflow: ellipsis;
+          max-width: 192px;
+          overflow: hidden;
         }
         .nb-company:hover { background: var(--surface2); color: var(--text); }
-        .nb-sep {
-          width: 1px; height: 20px;
-          background: var(--border);
-          flex-shrink: 0;
-          margin: 0 4px;
+        .nb-co-name {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
-        .nb-tabs {
-          display: flex; align-items: center;
-          gap: 2px; flex: 1; overflow: hidden;
+
+        /* ── Центр: вкладки всегда по центру ────────────────────── */
+        .nb-center {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;                     /* расстояние между кнопками */
         }
+
+        /* ── Правая: зеркало левой (пустая, держит симметрию) ────── */
+        .nb-right { width: 200px; }
+
+        /* ── Кнопка вкладки ─────────────────────────────────────── */
         .nb-tab {
           display: flex; align-items: center; gap: 5px;
           height: 32px; padding: 0 12px;
@@ -67,48 +85,62 @@ export default function NavBar({ companyId, current }) {
           font-size: 13px; font-weight: 600;
           white-space: nowrap;
           transition: background-color 0.15s, color 0.15s;
+          flex-shrink: 0;
         }
-        .nb-tab.active {
-          background: var(--accent);
-          color: #fff;
-        }
-        .nb-tab.inactive {
-          background: transparent;
-          color: var(--text3);
-        }
-        .nb-tab.inactive:hover {
-          background: var(--surface2);
-          color: var(--text);
-        }
-        .nb-icon { font-size: 14px; line-height: 1; }
+        .nb-tab.active  { background: var(--accent); color: #fff; }
+        .nb-tab.inactive { background: transparent; color: var(--text3); }
+        .nb-tab.inactive:hover { background: var(--surface2); color: var(--text); }
+
+        .nb-icon  { font-size: 14px; line-height: 1; }
         .nb-label { font-size: 12px; }
 
+        /* ── Планшет ≤960px: скрываем подписи ───────────────────── */
         @media (max-width: 960px) {
+          .nb-wrap {
+            grid-template-columns: 140px 1fr 140px;
+          }
+          .nb-right { width: 140px; }
           .nb-label { display: none; }
-          .nb-tab { padding: 0 10px; }
+          .nb-tab   { padding: 0 9px; gap: 0; }
+          .nb-center { gap: 4px; }
         }
-        @media (max-width: 500px) {
-          .nb-company span.nb-co-name { display: none; }
-          .nb-company { padding: 0 8px; }
+
+        /* ── Мобильный ≤640px ────────────────────────────────────── */
+        @media (max-width: 640px) {
+          .nb-wrap {
+            grid-template-columns: 42px 1fr 42px;
+            padding: 0 4px;
+          }
+          .nb-right { width: 42px; }
+          .nb-co-name { display: none; }
+          .nb-company { padding: 0 8px; max-width: 42px; }
+          .nb-tab { padding: 0 8px; }
+          .nb-center {
+            gap: 2px;
+            overflow-x: auto;
+            scrollbar-width: none;
+            -webkit-overflow-scrolling: touch;
+          }
+          .nb-center::-webkit-scrollbar { display: none; }
         }
       `}</style>
 
       <nav className="nb-wrap">
 
-        {/* Компания → главная */}
-        <div
-          className="nb-company"
-          onClick={() => navigate(`/company/${companyId}`)}
-          title={company?.name}
-        >
-          <span style={{ fontSize: 13 }}>←</span>
-          <span className="nb-co-name">{company?.name || '…'}</span>
+        {/* Левая: ← Название компании */}
+        <div className="nb-left">
+          <div
+            className="nb-company"
+            onClick={() => navigate(`/company/${companyId}`)}
+            title={company?.name}
+          >
+            <span style={{ fontSize: 13, flexShrink: 0 }}>←</span>
+            <span className="nb-co-name">{company?.name || '…'}</span>
+          </div>
         </div>
 
-        <div className="nb-sep" />
-
-        {/* Вкладки */}
-        <div className="nb-tabs">
+        {/* Центр: вкладки */}
+        <div className="nb-center">
           {MODULES.map(m => {
             const active = current === m.key
             return (
@@ -123,6 +155,9 @@ export default function NavBar({ companyId, current }) {
             )
           })}
         </div>
+
+        {/* Правая: пустая — держит симметрию */}
+        <div className="nb-right" />
 
       </nav>
     </>
