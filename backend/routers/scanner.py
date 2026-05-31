@@ -689,7 +689,9 @@ async def recognize_document(
             "supplier_inn":    esf_parsed["supplier_inn"],
             "buyer_name":      esf_parsed["buyer_name"],
             "buyer_inn":       esf_parsed["buyer_inn"],
-            "counterparty":    esf_parsed["supplier_name"],
+            "counterparty":    esf_parsed["supplier_name"] or (
+                                   f"ИНН {esf_parsed['supplier_inn']}" if esf_parsed["supplier_inn"] else None
+                               ),
             "counterparty_inn":esf_parsed["supplier_inn"],
             "direction":       "incoming",
             "amount":          esf_parsed["amount"],

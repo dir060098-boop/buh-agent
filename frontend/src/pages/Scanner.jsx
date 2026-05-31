@@ -170,7 +170,7 @@ export default function Scanner() {
     if (file) handleFile(file)
   }
 
-  const canConfirm = form.amount && form.counterparty && state !== 'saving'
+  const canConfirm = form.amount && (form.counterparty || form.counterparty_inn) && state !== 'saving'
 
   return (
     <div style={{minHeight:'100vh', background:'var(--bg)', fontFamily:'Manrope, sans-serif'}}>
