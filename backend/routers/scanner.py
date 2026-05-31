@@ -865,6 +865,51 @@ async def confirm_document(
     db.commit()
     db.refresh(doc)
 
+    # ── Авто-создание записи в модуле ЭСФ если тип документа = esf ──────────
+    esf_record = None
+    if data.doc_type == "esf" and data.doc_number:
+        # Проверяем дубль по номеру ЭСФ в этой компании
+        existing_esf = db.query(models.ESF).filter(
+            models.ESF.company_id == company_id,
+            models.ESF.esf_number == data.doc_number,
+        ).first()
+
+        if not existing_esf:
+            raw = data.ai_raw_json or {}
+            esf_date_parsed = doc_date  # уже распарсена выше
+
+            # НДС: из данных или авторасчёт 12/112
+            vat_amount = data.vat_amount or 0
+            if not vat_amount and data.amount:
+                vat_amount = round(data.amount * 12 / 112, 2)
+
+            esf_record = models.ESF(
+                company_id      = company_id,
+                direction       = raw.get("direction", "incoming"),
+                esf_number      = data.doc_number,
+                esf_date        = esf_date_parsed,
+                supplier_name   = raw.get("supplier_name") or data.counterparty,
+                supplier_inn    = raw.get("supplier_inn") or data.counterparty_inn,
+                buyer_name      = raw.get("buyer_name"),
+                buyer_inn       = raw.get("buyer_inn"),
+                amount          = data.amount or 0,
+                vat_amount      = vat_amount,
+                vat_rate        = "12",
+                status          = "pending",
+                linked_document_id = doc.id,
+            )
+            db.add(esf_record)
+            db.commit()
+            db.refresh(esf_record)
+            print(f"[SCANNER] ✓ ESF record created: id={esf_record.id}, number={esf_record.esf_number}, amount={esf_record.amount}")
+        else:
+            # ЭСФ с таким номером уже есть — привязываем документ к нему
+            if not existing_esf.linked_document_id:
+                existing_esf.linked_document_id = doc.id
+                db.commit()
+            esf_record = existing_esf
+            print(f"[SCANNER] ESF already exists: id={existing_esf.id}, linked doc={doc.id}")
+
     # Автоматическая разноска если включена и есть сумма
     posting_result = None
     if data.auto_post and doc.amount and doc.amount > 0:
@@ -887,7 +932,8 @@ async def confirm_document(
     return {
         "document_id": doc.id,
         "status": "saved",
-        "posting": posting_result
+        "posting": posting_result,
+        "esf_id": esf_record.id if esf_record else None,
     }
 
 

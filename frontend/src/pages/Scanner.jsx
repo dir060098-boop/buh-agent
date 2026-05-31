@@ -491,16 +491,27 @@ export default function Scanner() {
               {savedResult.posting?.error && (
                 <div style={{fontSize:12, color:'var(--warn)'}}>⚠️ {savedResult.posting.error}</div>
               )}
+              {savedResult.esf_id && (
+                <div style={{marginTop:10, padding:'8px 12px', background:'var(--accent-light)', borderRadius:'var(--radius-sm)', border:'1px solid var(--border)', fontSize:12, color:'var(--accent)', fontWeight:600}}>
+                  ⚡ ЭСФ автоматически добавлена в модуль ЭСФ → Входящие (статус: Не принято)
+                </div>
+              )}
             </div>
-            <div style={{display:'flex', gap:10}}>
+            <div style={{display:'flex', gap:10, flexWrap:'wrap'}}>
               <button onClick={reset}
-                style={{flex:1, background:'var(--accent)', color:'#fff', border:'none', padding:14, borderRadius:'var(--radius)', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit', boxShadow:'var(--shadow)'}}>
+                style={{flex:1, minWidth:140, background:'var(--accent)', color:'#fff', border:'none', padding:14, borderRadius:'var(--radius)', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit', boxShadow:'var(--shadow)'}}>
                 📷 Сканировать ещё
               </button>
               <button onClick={()=>navigate(`/company/${companyId}/journal`)}
-                style={{flex:1, background:'var(--surface)', color:'var(--text)', border:'1px solid var(--border)', padding:14, borderRadius:'var(--radius)', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit'}}>
+                style={{flex:1, minWidth:140, background:'var(--surface)', color:'var(--text)', border:'1px solid var(--border)', padding:14, borderRadius:'var(--radius)', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit'}}>
                 📒 В журнал
               </button>
+              {savedResult.esf_id && (
+                <button onClick={()=>navigate(`/company/${companyId}/esf`)}
+                  style={{flex:1, minWidth:140, background:'var(--surface)', color:'var(--accent)', border:'1.5px solid var(--accent)', padding:14, borderRadius:'var(--radius)', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit'}}>
+                  ⚡ В модуль ЭСФ
+                </button>
+              )}
             </div>
           </div>
         )}
