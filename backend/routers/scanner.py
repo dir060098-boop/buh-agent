@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from typing import Optional
 from database import get_db, settings
 from routers.auth import get_current_user
-import models, anthropic, base64, os, uuid, json
+import models, anthropic, base64, os, uuid, json, re, io
 from datetime import datetime
 import sqlalchemy as sa
 
@@ -40,11 +40,11 @@ SCANNER_PROMPT = """Ты — опытный бухгалтер в Кыргызс
   "doc_type": "invoice|act|esf|ttn|contract|receipt|bank_statement|payment_order|payroll|other",
   "doc_number": "номер документа или null",
   "doc_date": "дата YYYY-MM-DD или null",
-  "supplier_name": "название поставщика/исполнителя кто выставил документ",
+  "supplier_name": "ТОЛЬКО название поставщика/исполнителя — без меток полей ('Ф.И.О. ИП/Наименование организации:' и т.п.)",
   "supplier_inn": "ИНН поставщика или null",
-  "buyer_name": "название покупателя/заказчика кто получил документ",
+  "buyer_name": "ТОЛЬКО название покупателя/заказчика — без меток полей",
   "buyer_inn": "ИНН покупателя или null",
-  "counterparty": "название поставщика (= supplier_name) — тот с кем работает наша компания",
+  "counterparty": "ТОЛЬКО название поставщика (= supplier_name) — тот с кем работает наша компания",
   "counterparty_inn": "ИНН поставщика",
   "direction": "incoming",
   "amount": числовое значение итоговой суммы к оплате,
@@ -75,7 +75,297 @@ SCANNER_PROMPT = """Ты — опытный бухгалтер в Кыргызс
 - bank_statement: выписка банка
 - payment_order: платёжное поручение
 - payroll: расчётная ведомость
+
+ВАЖНО ДЛЯ КЫРГЫЗСКИХ ЭСФ (форма BLANK STI-007):
+- Поля формы содержат метки: "Ф.И.О. ИП/Наименование организации:", "Поставщик ИНН:" и т.д.
+- В JSON пиши ТОЛЬКО само значение, БЕЗ метки поля.
+- Пример: ячейка содержит "Ф.И.О. ИП/Наименование организации: Иванов А.А." → supplier_name = "Иванов А.А."
+- Поставщик (rows 201-208) — это продавец/исполнитель (supplier)
+- Покупатель (rows 301-308) — это наша компания (buyer)
 """
+
+
+def clean_name(name: str) -> str:
+    """
+    Убирает метки полей из кыргызских ЭСФ (форма BLANK STI-007).
+    Claude читает ячейку целиком: 'Ф.И.О. ИП/Наименование организации: Иванов А.'
+    Нам нужно только: 'Иванов А.'
+    """
+    if not name:
+        return name
+    prefixes = [
+        "ф.и.о. ип/наименование организации :",
+        "ф.и.о. ип/наименование организации:",
+        "ф.и.о. ип / наименование организации:",
+        "наименование организации:",
+        "ф.и.о.:",
+        "наименование:",
+    ]
+    s = name.strip()
+    s_lower = s.lower()
+    for prefix in prefixes:
+        if s_lower.startswith(prefix):
+            return s[len(prefix):].strip()
+    return s
+
+
+# ── КГ ЭСФ ПАРСЕР (pdfplumber) ───────────────────────────────────────────────
+# Кыргызская форма BLANK STI-007 имеет 100% предсказуемую структуру.
+# Используем прямое извлечение вместо AI-распознавания → нет OCR-ошибок.
+
+_ESF_NUM_RE  = re.compile(r'\d{5,10}-\d{3}-\d{8,}')
+_ESF_DATE_RE = re.compile(r'\b(\d{1,2})\s+(\d{1,2})\s+(20\d{2})\b')
+
+
+def _pf(val) -> float:
+    """Parse float safely"""
+    if val is None:
+        return 0.0
+    try:
+        return float(str(val).strip().replace(' ', '').replace(',', '.'))
+    except Exception:
+        return 0.0
+
+
+def _extract_esf_name_from_text(page, side: str) -> str:
+    """
+    Извлечь имя поставщика или покупателя из сырого текста страницы.
+    side = 'left' (поставщик, cols 0..50%) или 'right' (покупатель, cols 50%..100%)
+    """
+    w, h = page.width, page.height
+    if side == 'left':
+        crop = page.crop((0, h * 0.15, w * 0.50, h * 0.48))
+    else:
+        crop = page.crop((w * 0.50, h * 0.15, w, h * 0.48))
+    text = crop.extract_text() or ""
+    m = re.search(
+        r'(?:Наименование\s+организации|Ф\.И\.О\.\s*ИП)[^\n:]*[:\s]+(.+?)(?:\n|$)',
+        text, re.IGNORECASE
+    )
+    if m:
+        return clean_name(m.group(1).strip())
+    # Fallback: первая непустая строка длиннее 5 символов
+    for line in text.splitlines():
+        line = line.strip()
+        if len(line) > 5 and not line[0].isdigit():
+            return clean_name(line)
+    return ""
+
+
+def detect_and_parse_esf(content: bytes):
+    """
+    Обнаружить и распарсить КГ ЭСФ (BLANK STI-007) через pdfplumber.
+    Возвращает dict с полями документа, или None если это не ЭСФ.
+
+    Преимущества над AI-распознаванием:
+    - 100% точные числа (сумма, НДС, количество)
+    - Нет OCR-ошибок в именах (Азнахунова ≠ Алпахунова)
+    - Правильное разделение поставщик / покупатель
+    - Извлекает все строки товаров
+    """
+    try:
+        import pdfplumber
+    except ImportError:
+        return None
+
+    try:
+        with pdfplumber.open(io.BytesIO(content)) as pdf:
+            if not pdf.pages:
+                return None
+
+            page1   = pdf.pages[0]
+            text1   = page1.extract_text() or ""
+            tables1 = page1.extract_tables()
+
+            # ── Проверка: это КГ ЭСФ? ──────────────────────────────────
+            is_esf = (
+                "BLANK STI" in text1
+                or ("СЧЕТ-ФАКТУРА" in text1 and "Кыргыз" in text1)
+            )
+            if not is_esf:
+                return None
+
+            result = {
+                "doc_type":       "esf",
+                "doc_number":     None,
+                "doc_date":       None,
+                "supplier_inn":   None,
+                "supplier_name":  None,
+                "buyer_inn":      None,
+                "buyer_name":     None,
+                "amount":         0.0,
+                "vat_amount":     0.0,
+                "currency":       "KGS",
+                "items":          [],
+            }
+
+            # ── 1. Номер ЭСФ ────────────────────────────────────────────
+            for t in tables1:
+                if len(t) == 1 and len(t[0]) == 2:
+                    val = str(t[0][0] or "").strip()
+                    if _ESF_NUM_RE.match(val):
+                        result["doc_number"] = val
+                        break
+            if not result["doc_number"]:
+                m = _ESF_NUM_RE.search(text1)
+                if m:
+                    result["doc_number"] = m.group()
+
+            # ── 2. Дата из таблиц с цифрами (формат КГ ЭСФ) ───────────
+            # КГ ЭСФ хранит дату в двух 4-ячейных таблицах:
+            #   ['3','1','0','3']  → день "31", месяц "03"
+            #   ['2','0','2','5']  → год "2025"
+            digit4_tables = []
+            for t in tables1:
+                if len(t) == 1 and len(t[0]) == 4:
+                    cells = [str(c or "").strip() for c in t[0]]
+                    if all(c.isdigit() for c in cells):
+                        digit4_tables.append(cells)
+            for i in range(len(digit4_tables) - 1):
+                dm, yr4 = digit4_tables[i], digit4_tables[i + 1]
+                day_s   = dm[0] + dm[1]
+                month_s = dm[2] + dm[3]
+                year_s  = yr4[0] + yr4[1] + yr4[2] + yr4[3]
+                try:
+                    day_i, mon_i, yr_i = int(day_s), int(month_s), int(year_s)
+                    if 1 <= day_i <= 31 and 1 <= mon_i <= 12 and 2000 <= yr_i <= 2099:
+                        d = datetime.strptime(f"{day_i:02d}.{mon_i:02d}.{yr_i}", "%d.%m.%Y")
+                        result["doc_date"] = d.strftime("%Y-%m-%d")
+                        break
+                except Exception:
+                    continue
+            # Fallback: поиск в сыром тексте (31 03 2025 или 31.03.2025)
+            if not result["doc_date"]:
+                for pattern in (
+                    r'\b(\d{1,2})\s+(\d{1,2})\s+(20\d{2})\b',
+                    r'\b(\d{1,2})\.(\d{1,2})\.(20\d{2})\b',
+                ):
+                    m = re.search(pattern, text1)
+                    if m:
+                        try:
+                            d = datetime.strptime(
+                                f"{int(m.group(1)):02d}.{int(m.group(2)):02d}.{m.group(3)}",
+                                "%d.%m.%Y"
+                            )
+                            result["doc_date"] = d.strftime("%Y-%m-%d")
+                            break
+                        except Exception:
+                            pass
+
+            # ── 3. ИНН и имена из таблицы заголовка (32 колонки) ───────
+            for t in tables1:
+                for row in t:
+                    if not row or len(row) < 18:
+                        continue
+                    row_id = str(row[0] or "").replace(" ", "")
+
+                    if row_id == "201":
+                        # Поставщик ИНН: ячейки 2-15
+                        s_digits = [str(c or "").strip() for c in row[2:16]]
+                        inn = "".join(d for d in s_digits if d.isdigit())
+                        if inn:
+                            result["supplier_inn"] = inn
+                        # Покупатель ИНН: ячейки 18-31
+                        b_digits = [str(c or "").strip() for c in row[18:32]]
+                        inn = "".join(d for d in b_digits if d.isdigit())
+                        if inn:
+                            result["buyer_inn"] = inn
+
+                    elif row_id == "202":
+                        # Поставщик name: левая часть (ячейки 1-15, могут быть None)
+                        for cell in row[1:16]:
+                            s = str(cell or "").strip()
+                            if len(s) > 5 and s not in ("201", "202"):
+                                result["supplier_name"] = clean_name(s)
+                                break
+                        # Покупатель name: правая часть (ячейки 16+)
+                        for cell in row[16:]:
+                            s = str(cell or "").strip()
+                            if len(s) > 5 and s not in ("301", "302", "3 0 2"):
+                                result["buyer_name"] = clean_name(s)
+                                break
+
+            # ── 4. Имена из сырого текста если таблица не дала ─────────
+            # Слова, которые НЕ являются именами (метки форм, системные слова)
+            _NOT_NAMES = {
+                "оприходование", "поставщик", "покупатель", "исполнитель",
+                "заказчик", "наименование", "организации", "филиал",
+            }
+
+            def _is_valid_name(s: str) -> bool:
+                if not s or len(s) < 4:
+                    return False
+                first_word = s.split()[0].lower().rstrip(".")
+                return first_word not in _NOT_NAMES and not s[0].isdigit()
+
+            if not _is_valid_name(result.get("supplier_name", "")):
+                result["supplier_name"] = _extract_esf_name_from_text(page1, "left")
+                if not _is_valid_name(result.get("supplier_name", "")):
+                    result["supplier_name"] = None   # лучше None чем мусор
+
+            if not _is_valid_name(result.get("buyer_name", "")):
+                result["buyer_name"] = _extract_esf_name_from_text(page1, "right")
+                if not _is_valid_name(result.get("buyer_name", "")):
+                    result["buyer_name"] = None
+
+            # ── 5. Строки товаров со всех страниц ──────────────────────
+            for page in pdf.pages:
+                for t in page.extract_tables():
+                    if not t or len(t) < 3:
+                        continue
+                    if not any(cell and 'Код товара' in str(cell) for cell in t[0]):
+                        continue
+                    for row in t[2:]:
+                        if not row or len(row) < 12:
+                            continue
+                        if not str(row[0] or "").strip().isdigit():
+                            continue
+                        name  = str(row[2] or "").strip()
+                        total = _pf(row[11])
+                        vat   = _pf(row[8])
+                        if total:
+                            result["amount"]     += total
+                        if vat:
+                            result["vat_amount"] += vat
+                        if name:
+                            result["items"].append({
+                                "name":   name,
+                                "qty":    _pf(row[5]),
+                                "price":  _pf(row[4]),
+                                "amount": total,
+                            })
+
+            print(
+                f"[ESF_PARSER] ✓ number={result['doc_number']} "
+                f"date={result['doc_date']} "
+                f"supplier_inn={result['supplier_inn']} "
+                f"supplier_name={result['supplier_name']!r} "
+                f"buyer_name={result['buyer_name']!r} "
+                f"amount={result['amount']:.2f} "
+                f"items={len(result['items'])}"
+            )
+            return result
+
+    except Exception as e:
+        print(f"[ESF_PARSER] Error: {e}")
+        return None
+
+
+# Промпт для Claude когда данные уже извлечены pdfplumber-ом
+# Просим только summary и operation_type
+ESF_SUMMARY_PROMPT = """Тебе переданы данные электронной счёт-фактуры (ЭСФ) из Кыргызстана.
+Данные уже извлечены из PDF. Твоя задача — добавить два поля:
+
+1. operation_type — короткое описание операции (3-6 слов), например:
+   "покупка одежды и аксессуаров", "закупка обуви", "приобретение товаров"
+
+2. summary — 1-2 предложения: что куплено, у кого, на какую сумму.
+
+Данные документа:
+{data}
+
+Верни ТОЛЬКО валидный JSON:
+{{"operation_type": "...", "summary": "..."}}"""
 
 
 def convert_heic_to_jpeg(content: bytes) -> bytes:
@@ -349,63 +639,116 @@ async def recognize_document(
     with open(filepath, "wb") as f:
         f.write(content)
 
-    # Отправляем в Claude для распознавания
-    client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
-    b64, claude_media_type = prepare_for_claude(content, media_type)
-    message = build_claude_message(b64, claude_media_type)
+    print(f"[SCANNER] ====== NEW SCAN ======")
+    print(f"[SCANNER] file={file.filename}, size={len(content)} bytes, type={media_type}")
+
     ai_data = {}
     raw_text = ""
 
-    print(f"[SCANNER] ====== NEW SCAN ======")
-    print(f"[SCANNER] file={file.filename}")
-    print(f"[SCANNER] content_type_from_browser={file.content_type}")
-    print(f"[SCANNER] detected_media_type={media_type}")
-    print(f"[SCANNER] size={len(content)} bytes")
-    print(f"[SCANNER] claude_media_type={claude_media_type}")
-    print(f"[SCANNER] b64_len={len(b64)}")
-    # Проверяем начало файла (magic bytes)
-    magic = content[:8].hex()
-    print(f"[SCANNER] file_magic_bytes={magic}")
-    if content[:4] == b'%PDF':
-        print(f"[SCANNER] file_is_valid_pdf=True")
-    else:
-        print(f"[SCANNER] file_is_valid_pdf=False - NOT a PDF!")
+    # ── Путь 1: КГ ЭСФ — pdfplumber (точные данные, без OCR-ошибок) ──────────
+    esf_parsed = None
+    if media_type == "application/pdf":
+        esf_parsed = detect_and_parse_esf(content)
 
-    try:
-        response = client.messages.create(
-            model="claude-sonnet-4-5",
-            max_tokens=1200,
-            messages=[message]
+    if esf_parsed:
+        # Данные извлечены точно; просим Claude только summary + operation_type
+        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        items_preview = ", ".join(
+            it["name"] for it in esf_parsed["items"][:5]
         )
-        raw_text = response.content[0].text.strip()
-        print(f"[SCANNER] Claude raw response: {raw_text[:500]}")
-        if "```" in raw_text:
-            parts = raw_text.split("```")
-            for part in parts:
-                part = part.strip()
-                if part.startswith("json"):
-                    part = part[4:].strip()
-                try:
-                    ai_data = json.loads(part)
-                    break
-                except Exception:
-                    continue
+        if len(esf_parsed["items"]) > 5:
+            items_preview += f" и ещё {len(esf_parsed['items']) - 5} позиций"
+
+        data_str = (
+            f"Поставщик: {esf_parsed['supplier_name'] or '—'} (ИНН {esf_parsed['supplier_inn'] or '—'})\n"
+            f"Покупатель: {esf_parsed['buyer_name'] or '—'} (ИНН {esf_parsed['buyer_inn'] or '—'})\n"
+            f"Номер ЭСФ: {esf_parsed['doc_number'] or '—'}\n"
+            f"Дата: {esf_parsed['doc_date'] or '—'}\n"
+            f"Сумма: {esf_parsed['amount']:.2f} {esf_parsed['currency']}\n"
+            f"НДС: {esf_parsed['vat_amount']:.2f}\n"
+            f"Товары ({len(esf_parsed['items'])} позиций): {items_preview}"
+        )
+        try:
+            resp = client.messages.create(
+                model="claude-haiku-4-5",
+                max_tokens=300,
+                messages=[{"role": "user", "content": ESF_SUMMARY_PROMPT.format(data=data_str)}]
+            )
+            extra = json.loads(resp.content[0].text.strip())
+        except Exception:
+            extra = {
+                "operation_type": "покупка товаров",
+                "summary": f"ЭСФ №{esf_parsed['doc_number']} от {esf_parsed['supplier_name'] or 'поставщика'} на сумму {esf_parsed['amount']:,.0f} {esf_parsed['currency']}."
+            }
+
+        ai_data = {
+            "doc_type":        "esf",
+            "doc_number":      esf_parsed["doc_number"],
+            "doc_date":        esf_parsed["doc_date"],
+            "supplier_name":   esf_parsed["supplier_name"],
+            "supplier_inn":    esf_parsed["supplier_inn"],
+            "buyer_name":      esf_parsed["buyer_name"],
+            "buyer_inn":       esf_parsed["buyer_inn"],
+            "counterparty":    esf_parsed["supplier_name"],
+            "counterparty_inn":esf_parsed["supplier_inn"],
+            "direction":       "incoming",
+            "amount":          esf_parsed["amount"],
+            "vat_amount":      esf_parsed["vat_amount"],
+            "currency":        esf_parsed["currency"],
+            "items":           esf_parsed["items"],
+            "operation_type":  extra.get("operation_type", "покупка товаров"),
+            "summary":         extra.get("summary", ""),
+            "issues":          [],
+            "confidence":      98,
+        }
+        print(f"[SCANNER] ESF path: counterparty={ai_data['counterparty']!r}, amount={ai_data['amount']:.2f}")
+
+    else:
+        # ── Путь 2: Все прочие документы — полное AI-распознавание ──────────
+        client = anthropic.Anthropic(api_key=settings.ANTHROPIC_API_KEY)
+        b64, claude_media_type = prepare_for_claude(content, media_type)
+        message = build_claude_message(b64, claude_media_type)
+
+        if content[:4] == b'%PDF':
+            print(f"[SCANNER] PDF→AI path")
         else:
-            ai_data = json.loads(raw_text)
-    except json.JSONDecodeError:
-        ai_data = {
-            "doc_type": "other",
-            "summary": f"Документ распознан, структура не распознана: {raw_text[:200]}",
-            "issues": ["Ошибка парсинга JSON"],
-            "confidence": 30
-        }
-    except Exception as e:
-        ai_data = {
-            "doc_type": "other",
-            "summary": f"Ошибка распознавания: {str(e)}",
-            "issues": [str(e)],
-            "confidence": 0
-        }
+            print(f"[SCANNER] Image→AI path")
+
+        try:
+            response = client.messages.create(
+                model="claude-sonnet-4-5",
+                max_tokens=1200,
+                messages=[message]
+            )
+            raw_text = response.content[0].text.strip()
+            print(f"[SCANNER] Claude raw response: {raw_text[:500]}")
+            if "```" in raw_text:
+                parts = raw_text.split("```")
+                for part in parts:
+                    part = part.strip()
+                    if part.startswith("json"):
+                        part = part[4:].strip()
+                    try:
+                        ai_data = json.loads(part)
+                        break
+                    except Exception:
+                        continue
+            else:
+                ai_data = json.loads(raw_text)
+        except json.JSONDecodeError:
+            ai_data = {
+                "doc_type": "other",
+                "summary": f"Документ распознан, структура не распознана: {raw_text[:200]}",
+                "issues": ["Ошибка парсинга JSON"],
+                "confidence": 30
+            }
+        except Exception as e:
+            ai_data = {
+                "doc_type": "other",
+                "summary": f"Ошибка распознавания: {str(e)}",
+                "issues": [str(e)],
+                "confidence": 0
+            }
 
     # Проверяем дубли — предупреждаем но НЕ блокируем (бухгалтер решает)
     duplicate = check_duplicate(db, company_id, ai_data)
@@ -434,11 +777,11 @@ async def recognize_document(
             "doc_type":       ai_data.get("doc_type", "other"),
             "doc_number":     ai_data.get("doc_number"),
             "doc_date":       ai_data.get("doc_date"),
-            "supplier_name":  ai_data.get("supplier_name"),
+            "supplier_name":  clean_name(ai_data.get("supplier_name")),
             "supplier_inn":   ai_data.get("supplier_inn"),
-            "buyer_name":     ai_data.get("buyer_name"),
+            "buyer_name":     clean_name(ai_data.get("buyer_name")),
             "buyer_inn":      ai_data.get("buyer_inn"),
-            "counterparty":   ai_data.get("counterparty") or ai_data.get("supplier_name"),
+            "counterparty":   clean_name(ai_data.get("counterparty") or ai_data.get("supplier_name")),
             "counterparty_inn": ai_data.get("counterparty_inn") or ai_data.get("supplier_inn"),
             "direction":      ai_data.get("direction", "incoming"),
             "amount":         ai_data.get("amount"),
