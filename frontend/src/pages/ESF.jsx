@@ -529,8 +529,8 @@ export default function ESF() {
 
             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
               <button onClick={handleAdd}
-                disabled={!form.esf_number || !form.esf_date || !form.amount || saving}
-                style={{ flex: 2, background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', padding: 12, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', opacity: (!form.esf_number || !form.amount) ? 0.5 : 1 }}>
+                disabled={!form.esf_number || !form.esf_date || !form.supplier || !(parseFloat(form.amount) > 0) || saving}
+                style={{ flex: 2, background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', padding: 12, fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', opacity: (!form.esf_number || !form.supplier || !(parseFloat(form.amount) > 0)) ? 0.5 : 1 }}>
                 {saving ? 'Сохранение...' : 'Добавить'}
               </button>
               <button onClick={() => setShowAdd(false)}
