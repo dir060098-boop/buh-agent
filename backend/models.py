@@ -283,3 +283,25 @@ class JournalEntry(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     company = relationship("Company", back_populates="journal_entries")
     document = relationship("Document", back_populates="journal_entries")
+
+
+# ============================================================
+# КОММУНИКАЦИИ — ЧАТЫ И ПИСЬМА КЛИЕНТАМ
+# ============================================================
+class ChatMessage(Base):
+    """История AI-чата по конкретной компании."""
+    __tablename__ = "chat_messages"
+    id         = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    role       = Column(String, nullable=False)   # "user" | "assistant"
+    content    = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class ClientMessage(Base):
+    """Сгенерированные письма/сообщения для клиента-директора."""
+    __tablename__ = "client_messages"
+    id           = Column(Integer, primary_key=True)
+    company_id   = Column(Integer, ForeignKey("companies.id"), nullable=False)
+    message_type = Column(String, default="status")   # status | documents | deadline | payment
+    content      = Column(Text, nullable=False)
+    created_at   = Column(DateTime(timezone=True), server_default=func.now())

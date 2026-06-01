@@ -139,7 +139,14 @@ export const deadlines = {
 }
 
 export const communications = {
-  generate: (companyId, context) => api.post('/api/communications/generate', { company_id: companyId, context }),
+  // AI-чат
+  history:        (companyId)        => api.get(`/api/communications/${companyId}/chat`),
+  chat:           (companyId, data)  => api.post(`/api/communications/${companyId}/chat`, data),
+  clearHistory:   (companyId)        => api.delete(`/api/communications/${companyId}/chat`),
+  // Письма клиенту
+  generateClientMsg: (companyId, data) => api.post(`/api/communications/${companyId}/client-message`, data),
+  clientMessages:    (companyId)       => api.get(`/api/communications/${companyId}/client-messages`),
+  // Legacy
   reminders: (companyId) => api.get(`/api/communications/${companyId}/reminders`),
 }
 

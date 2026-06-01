@@ -3,13 +3,14 @@ import { useNavigate } from 'react-router-dom'
 import { companies } from '../api/client'
 
 const MODULES = [
-  { key: 'scanner',   icon: '📷', label: 'Сканер'   },
-  { key: 'documents', icon: '🗂',  label: 'Архив'    },
-  { key: 'journal',   icon: '📋', label: 'Журнал'   },
-  { key: 'esf',       icon: '⚡', label: 'ЭСФ'      },
-  { key: 'bank',      icon: '🏦', label: 'Банк'     },
-  { key: 'salary',    icon: '💼', label: 'Зарплата' },
-  { key: 'deadlines', icon: '📅', label: 'Сроки'    },
+  { key: 'scanner',        icon: '📷', label: 'Сканер'   },
+  { key: 'documents',      icon: '🗂',  label: 'Архив'    },
+  { key: 'journal',        icon: '📋', label: 'Журнал'   },
+  { key: 'esf',            icon: '⚡', label: 'ЭСФ'      },
+  { key: 'bank',           icon: '🏦', label: 'Банк'     },
+  { key: 'salary',         icon: '💼', label: 'Зарплата' },
+  { key: 'deadlines',      icon: '📅', label: 'Сроки'    },
+  { key: 'communications', icon: '💬', label: 'Чат'      },
 ]
 
 // ── Кэш имён компаний: заполняется один раз, живёт всю сессию ─────────────
