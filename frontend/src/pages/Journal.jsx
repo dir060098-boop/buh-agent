@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { posting, documents as docsApi } from '../api/client'
+import { posting, documents as docsApi, scanner as scannerApi } from '../api/client'
 import NavBar from '../components/NavBar'
 
 const S_LABEL = { posted:'Проведено', needs_review:'На проверке', rejected:'Отклонено' }
@@ -33,14 +33,13 @@ function CtxBtn({icon,label,onClick,muted}){
 
 // ── МОДАЛ ПРОСМОТРА ДОКУМЕНТА ─────────────────────────────
 function DocViewModal({entry,onClose}){
-  const base=''
   const [docFileUrl,setDocFileUrl]=useState(null)
   const [docInfo,setDocInfo]=useState(null)
   useEffect(()=>{
     if(!entry.document_id)return
     docsApi.getById(entry.document_id).then(r=>{
       const doc=r.data;setDocInfo(doc)
-      if(doc.file_path)setDocFileUrl(`${base}/api/scanner/file?path=${encodeURIComponent(doc.file_path)}`)
+      if(doc.file_path)setDocFileUrl(scannerApi.fileUrl(doc.file_path))
     }).catch(()=>{})
   },[entry.document_id])
   return(
