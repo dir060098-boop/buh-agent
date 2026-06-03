@@ -865,8 +865,8 @@ export default function Bank() {
                   {importFile ? (
                     <>
                       <div style={{ fontSize: 22, marginBottom: 4 }}>📄</div>
-                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>{importFile.name}</div>
-                      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)', wordBreak: 'break-all', lineHeight: 1.4 }}>{importFile.name}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>
                         {(importFile.size / 1024).toFixed(0)} KB · нажмите или перетащите другой файл
                       </div>
                     </>

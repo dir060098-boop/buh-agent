@@ -971,8 +971,84 @@ def _parse_optima_pdf(data: bytes) -> list[dict]:
     return rows
 
 
+def _parse_demir_pdf_v2(data: bytes) -> list[dict]:
+    """Парсит выписку Демир Банк (PDF) нового формата — таблица с колонками.
+    Колонки: №, ДАТА ПРОВЕДЕНИЯ, ДАТА ВАЛЮТ-ИЯ, ВИД ОПЕРАЦИИ,
+             ПЛАТЕЛЬЩИК/ПОЛУЧАТЕЛЬ, ОБЪЯСНЕНИЕ, СУММА, БАЛАНС, ИНН КОНТРАГЕНТА.
+    Дата: DD-MM-YYYY (дефис, не точка).
+    Сумма: '1 671 210\\n,00' или '-1 671 21\\n0,00' — пробел-тысячи, запятая-дробь.
+    """
+    try:
+        import pdfplumber as _plumber
+    except ImportError:
+        raise ValueError("pdfplumber не установлен")
+
+    def _parse_amount(raw: str) -> float:
+        """'1 671 210\\n,00' → 1671210.00 | '-1 671 21\\n0,00' → -1671210.00"""
+        s = raw.replace('\n', '').replace('\xa0', '').replace(' ', '').replace(',', '.')
+        try:
+            return float(s)
+        except ValueError:
+            return 0.0
+
+    rows = []
+    with _plumber.open(io.BytesIO(data)) as pdf:
+        for page in pdf.pages:
+            for table in page.extract_tables():
+                if not table or len(table) < 2:
+                    continue
+                header = [str(c or '').replace('\n', ' ').lower().strip() for c in table[0]]
+                # Детект нового формата Демир: обязательные колонки
+                if not (any('плательщик' in h for h in header) and
+                        any('объяснение' in h or 'назначение' in h for h in header)):
+                    continue
+
+                col_date    = next((i for i, h in enumerate(header) if 'дата' in h and 'провед' in h), 1)
+                col_amount  = next((i for i, h in enumerate(header) if 'сумма' in h), 6)
+                col_cp      = next((i for i, h in enumerate(header) if 'плательщик' in h or 'получатель' in h), 4)
+                col_purpose = next((i for i, h in enumerate(header) if 'объяснение' in h or 'назначение' in h), 5)
+                col_inn     = next((i for i, h in enumerate(header) if 'инн' in h), None)
+
+                for row in table[1:]:
+                    if not row:
+                        continue
+                    cells = [str(c or '').strip() for c in row]
+                    if len(cells) <= col_amount:
+                        continue
+
+                    # Дата: первая строка ячейки, формат DD-MM-YYYY
+                    date_raw = cells[col_date].split('\n')[0].strip()
+                    m = re.match(r'(\d{2}-\d{2}-\d{4})', date_raw)
+                    if not m:
+                        continue
+                    try:
+                        d = datetime.strptime(m.group(1), "%d-%m-%Y")
+                    except ValueError:
+                        continue
+
+                    amount_val = _parse_amount(cells[col_amount])
+                    if amount_val == 0:
+                        continue
+
+                    cp      = cells[col_cp].replace('\n', ' ').strip()      if col_cp < len(cells) else ''
+                    purpose = cells[col_purpose].replace('\n', ' ').strip() if col_purpose < len(cells) else ''
+                    inn     = cells[col_inn].replace('\n', ' ').strip()     if col_inn is not None and col_inn < len(cells) else ''
+
+                    rows.append({
+                        "date": d,
+                        "amount": abs(amount_val),
+                        "direction": "in" if amount_val > 0 else "out",
+                        "counterparty": cp,
+                        "purpose": purpose,
+                        "counterparty_inn": inn,
+                        "doc_number": "",
+                        "currency": "KGS",
+                    })
+    return rows
+
+
 def _parse_demir_pdf(data: bytes) -> list[dict]:
-    """Парсит выписку Демир Банк (PDF). Один столбец суммы — положительная=приход, отрицательная=расход.
+    """Парсит выписку Демир Банк (PDF) старого формата. Один столбец суммы — положительная=приход, отрицательная=расход.
     Числа-суммы: не более 10 цифр до разделителя (чтобы не путать с номерами счетов 16 цифр).
     """
     try:
@@ -1084,13 +1160,19 @@ async def import_statement(
         if fname.endswith(".xlsx") or fname.endswith(".xls"):
             tx_rows = _parse_optima_xlsx(data)
         elif fname.endswith(".pdf"):
-            # Детектируем формат по содержимому
+            # Детектируем формат по содержимому первой страницы
             import pdfplumber as _plumber
             with _plumber.open(io.BytesIO(data)) as _pdf:
                 _first_text = _pdf.pages[0].extract_text() or ""
+
             if "Справка-выписка" in _first_text:
+                # Оптима Банк PDF
                 tx_rows = _parse_optima_pdf(data)
+            elif ("ПЛАТЕЛЬЩИК" in _first_text and "ОБЪЯСНЕНИЕ" in _first_text):
+                # Демир Банк — новый формат (таблица с колонками, дата DD-MM-YYYY)
+                tx_rows = _parse_demir_pdf_v2(data)
             else:
+                # Демир Банк — старый формат (текстовые строки)
                 tx_rows = _parse_demir_pdf(data)
         else:
             raise HTTPException(400, "Поддерживаются файлы XLSX и PDF")
