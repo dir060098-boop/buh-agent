@@ -244,7 +244,9 @@ def get_journal(
     status: Optional[str] = None,
     counterparty: Optional[str] = None,
     debit_account: Optional[str] = None,
-    include_archived: bool = False,   # False = только активный период
+    include_archived: bool = False,
+    limit: int = 100,
+    offset: int = 0,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -270,13 +272,16 @@ def get_journal(
     if debit_account:
         q = q.filter(JournalEntry.debit_account == debit_account)
 
-    rows = q.order_by(JournalEntry.entry_date.desc(), JournalEntry.id.desc()).all()
+    # Фильтр по контрагенту (через JOIN с Document)
+    if counterparty:
+        q = q.filter(Document.counterparty.ilike(f"%{counterparty}%"))
+
+    total = q.count()
+    rows  = q.order_by(JournalEntry.entry_date.desc(), JournalEntry.id.desc())\
+             .offset(offset).limit(limit).all()
 
     result = []
     for i, (e, doc) in enumerate(rows):
-        # Фильтр по контрагенту через документ
-        if counterparty and doc and counterparty.lower() not in (doc.counterparty or "").lower():
-            continue
         result.append({
             "row_num": len(rows) - i,          # № п/п (обратный порядок)
             "id": e.id,
@@ -308,7 +313,7 @@ def get_journal(
             "reviewed_at": str(e.reviewed_at) if e.reviewed_at else None,
             "created_at": str(e.created_at)
         })
-    return result
+    return {"items": result, "total": total, "has_more": offset + limit < total}
 
 
 # ── Предпросмотр закрытия периода ─────────────────────────────────────────

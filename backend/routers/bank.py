@@ -205,6 +205,8 @@ def list_transactions(
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
@@ -239,21 +241,27 @@ def list_transactions(
             models.BankTransaction.purpose.ilike(f"%{search}%"),
         ))
 
+    total_tx  = q.count()
     txs = q.order_by(models.BankTransaction.date.desc(),
-                     models.BankTransaction.id.desc()).all()
+                     models.BankTransaction.id.desc()).offset(offset).limit(limit).all()
 
-    # Бегущий остаток (по счёту, от старых к новым)
-    # Для каждого счёта считаем накопленный остаток
     balances_by_acc = {a.id: account_to_dict(a, db)["balance"] for a in accs}
 
-    # Итоги
-    total_in  = sum(t.amount for t in txs if t.direction == "in")
-    total_out = sum(t.amount for t in txs if t.direction == "out")
-    unmatched = sum(1 for t in txs if t.status == "unmatched")
+    # Итоги считаем по ВСЕМ транзакциям (без пагинации)
+    all_q = db.query(models.BankTransaction).filter(
+        models.BankTransaction.account_id.in_(acc_ids)
+    )
+    if account_id: all_q = all_q.filter(models.BankTransaction.account_id == account_id)
+    all_txs = all_q.all()
+    total_in  = sum(t.amount for t in all_txs if t.direction == "in")
+    total_out = sum(t.amount for t in all_txs if t.direction == "out")
+    unmatched = sum(1 for t in all_txs if t.status == "unmatched")
 
     return {
         "accounts": [account_to_dict(a, db) for a in accs],
         "transactions": [tx_to_dict(t) for t in txs],
+        "total_transactions": total_tx,
+        "has_more": offset + limit < total_tx,
         "summary": {
             "total_in": round(total_in, 2),
             "total_out": round(total_out, 2),

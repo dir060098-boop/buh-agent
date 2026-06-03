@@ -51,6 +51,10 @@ export default function ESF() {
   const [tab, setTab]               = useState('incoming')   // incoming | outgoing
   const [records, setRecords]       = useState([])
   const [loading, setLoading]       = useState(false)
+  const [esfTotal, setEsfTotal]     = useState(0)
+  const [esfHasMore, setEsfHasMore] = useState(false)
+  const [esfLoadingMore, setEsfLoadingMore] = useState(false)
+  const ESF_LIMIT = 100
   const [confirmState, setConfirmState] = useState(null)
 
   // Фильтры
@@ -86,8 +90,12 @@ export default function ESF() {
     const params = { direction: tab }
     if (dateFrom) params.date_from = dateFrom
     if (dateTo)   params.date_to   = dateTo
-    esfApi.list(companyId, params)
-      .then(r => setRecords(r.data))
+    esfApi.list(companyId, { ...params, limit: ESF_LIMIT, offset: 0 })
+      .then(r => {
+        setRecords(r.data.items || r.data)
+        setEsfTotal(r.data.total || 0)
+        setEsfHasMore(r.data.has_more || false)
+      })
       .catch(() => setRecords([]))
       .finally(() => setLoading(false))
   }, [companyId, tab, dateFrom, dateTo])
@@ -115,6 +123,20 @@ export default function ESF() {
   }
 
   // ── Добавить ────────────────────────────────────────────────────────────
+  async function loadMoreEsf() {
+    setEsfLoadingMore(true)
+    const params = { direction: tab, limit: ESF_LIMIT, offset: records.length }
+    if (dateFrom) params.date_from = dateFrom
+    if (dateTo)   params.date_to   = dateTo
+    try {
+      const r = await esfApi.list(companyId, params)
+      const newItems = r.data.items || r.data
+      setRecords(prev => [...prev, ...newItems])
+      setEsfHasMore(r.data.has_more || false)
+    } catch {}
+    finally { setEsfLoadingMore(false) }
+  }
+
   async function handleAdd() {
     if (!form.esf_number || !form.esf_date || !form.amount) return
     setSaving(true)
@@ -431,6 +453,21 @@ export default function ESF() {
               <div style={{ textAlign: 'right', color: 'var(--text3)' }}>{fmt(stats.vat)}</div>
               <div></div><div></div><div></div>
             </div>
+
+            {/* Счётчик + загрузить ещё */}
+            {(esfHasMore || esfTotal > ESF_LIMIT) && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderTop: '1px solid var(--border)' }}>
+                <div style={{ fontSize: 12, color: 'var(--text3)' }}>
+                  Показано <strong style={{ color: 'var(--text)' }}>{records.length}</strong> из <strong style={{ color: 'var(--text)' }}>{esfTotal}</strong>
+                </div>
+                {esfHasMore && (
+                  <button onClick={loadMoreEsf} disabled={esfLoadingMore}
+                    style={{ fontSize: 12, fontWeight: 700, padding: '6px 16px', borderRadius: 'var(--radius-sm)', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--accent)', cursor: esfLoadingMore ? 'not-allowed' : 'pointer', fontFamily: 'inherit' }}>
+                    {esfLoadingMore ? '⏳ Загружаю...' : 'Загрузить ещё →'}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

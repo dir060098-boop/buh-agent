@@ -66,6 +66,8 @@ def list_esf(
     direction:  Optional[str] = None,
     date_from:  Optional[str] = None,
     date_to:    Optional[str] = None,
+    limit:  int = 100,
+    offset: int = 0,
     db:   Session = Depends(get_db),
     user  = Depends(get_current_user),
 ):
@@ -77,8 +79,9 @@ def list_esf(
     if date_to:
         dt = datetime.strptime(date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
         q = q.filter(models.ESF.esf_date <= dt)
-    records = q.order_by(models.ESF.esf_date.desc()).all()
-    return [_esf_dict(r) for r in records]
+    total   = q.count()
+    records = q.order_by(models.ESF.esf_date.desc()).offset(offset).limit(limit).all()
+    return {"items": [_esf_dict(r) for r in records], "total": total, "has_more": offset + limit < total}
 
 
 # ── Книга покупок / продаж ─────────────────────────────────────────────────

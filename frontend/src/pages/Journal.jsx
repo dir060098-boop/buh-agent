@@ -207,6 +207,10 @@ export default function Journal(){
   const [selected,setSelected]=useState(new Set())
   const [docViewEntry,setDocViewEntry]=useState(null)
   const [copyMsg,setCopyMsg]=useState(null)
+  const [totalEntries,setTotalEntries]=useState(0)
+  const [hasMore,setHasMore]=useState(false)
+  const [loadingMore,setLoadingMore]=useState(false)
+  const PAGE=100
   // Закрытие периода
   const [showArchived,setShowArchived]=useState(false)
   const [showClosePeriod,setShowClosePeriod]=useState(false)
@@ -229,8 +233,11 @@ export default function Journal(){
       if(filterDateTo)params.date_to=filterDateTo
       if(filterCounterparty)params.counterparty=filterCounterparty
       if(showArchived)params.include_archived=true
+      params.limit=PAGE; params.offset=0
       const res=await posting.journal(companyId,params)
-      setEntries(res.data)
+      setEntries(res.data.items)
+      setTotalEntries(res.data.total)
+      setHasMore(res.data.has_more)
     }catch(e){console.error(e)}
     finally{setLoading(false)}
   },[companyId,filterStatus,filterDateFrom,filterDateTo,filterCounterparty,showArchived])
@@ -273,6 +280,22 @@ export default function Journal(){
       setTimeout(()=>setCopyMsg(null),4000)
     }catch(e){alert(e.response?.data?.detail||'Ошибка закрытия периода')}
     finally{setCpClosing(false)}
+  }
+
+  async function loadMore(){
+    setLoadingMore(true)
+    try{
+      const params={limit:PAGE, offset:entries.length}
+      if(filterStatus)params.status=filterStatus
+      if(filterDateFrom)params.date_from=filterDateFrom
+      if(filterDateTo)params.date_to=filterDateTo
+      if(filterCounterparty)params.counterparty=filterCounterparty
+      if(showArchived)params.include_archived=true
+      const res=await posting.journal(companyId,params)
+      setEntries(prev=>[...prev,...res.data.items])
+      setHasMore(res.data.has_more)
+    }catch(e){}
+    finally{setLoadingMore(false)}
   }
 
   async function runAutoAll(){
@@ -465,6 +488,20 @@ export default function Journal(){
                     )}
                   </div>
                 ))}
+              </div>
+            )}
+            {/* Счётчик + кнопка «Загрузить ещё» */}
+            {entries.length>0&&(
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 14px',borderTop:'1px solid var(--border)',background:'var(--surface2)',borderRadius:'0 0 var(--radius-lg) var(--radius-lg)'}}>
+                <div style={{fontSize:12,color:'var(--text3)'}}>
+                  Показано <strong style={{color:'var(--text)'}}>{entries.length}</strong> из <strong style={{color:'var(--text)'}}>{totalEntries}</strong> проводок
+                </div>
+                {hasMore&&(
+                  <button onClick={loadMore} disabled={loadingMore}
+                    style={{fontSize:12,fontWeight:700,padding:'6px 16px',borderRadius:'var(--radius-sm)',background:'var(--surface)',border:'1px solid var(--border)',color:'var(--accent)',cursor:loadingMore?'not-allowed':'pointer',fontFamily:'inherit',opacity:loadingMore?0.6:1}}>
+                    {loadingMore?'⏳ Загружаю...':'Загрузить ещё →'}
+                  </button>
+                )}
               </div>
             )}
           </>

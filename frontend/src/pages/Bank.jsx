@@ -61,9 +61,16 @@ export default function Bank() {
     companies.get(companyId).then(r => setCompany(r.data)).catch(() => {})
   }, [companyId])
 
+  const [txOffset, setTxOffset]   = useState(0)
+  const [txHasMore, setTxHasMore] = useState(false)
+  const [txTotal, setTxTotal]     = useState(0)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const TX_LIMIT = 100
+
   const load = useCallback(() => {
     setLoading(true)
-    const params = {}
+    setTxOffset(0)
+    const params = { limit: TX_LIMIT, offset: 0 }
     if (activeAcc)       params.account_id = activeAcc
     if (dirFilter)       params.direction = dirFilter
     if (statusFilter)    params.status = statusFilter
@@ -72,10 +79,34 @@ export default function Bank() {
     if (dateFrom)        params.date_from = dateFrom
     if (dateTo)          params.date_to = dateTo
     bank.transactions(companyId, params)
-      .then(r => setData(r.data))
+      .then(r => {
+        setData(r.data)
+        setTxHasMore(r.data.has_more || false)
+        setTxTotal(r.data.total_transactions || 0)
+      })
       .catch(() => {})
       .finally(() => setLoading(false))
   }, [companyId, activeAcc, dirFilter, statusFilter, currencyFilter, search, dateFrom, dateTo])
+
+  async function loadMoreTx() {
+    setLoadingMore(true)
+    const newOffset = txOffset + TX_LIMIT
+    const params = { limit: TX_LIMIT, offset: newOffset }
+    if (activeAcc)      params.account_id = activeAcc
+    if (dirFilter)      params.direction = dirFilter
+    if (statusFilter)   params.status = statusFilter
+    if (currencyFilter) params.currency = currencyFilter
+    if (search)         params.search = search
+    if (dateFrom)       params.date_from = dateFrom
+    if (dateTo)         params.date_to = dateTo
+    try {
+      const r = await bank.transactions(companyId, params)
+      setData(prev => ({ ...prev, transactions: [...prev.transactions, ...r.data.transactions] }))
+      setTxHasMore(r.data.has_more || false)
+      setTxOffset(newOffset)
+    } catch {}
+    finally { setLoadingMore(false) }
+  }
 
   useEffect(() => { load() }, [load])
 
@@ -465,6 +496,21 @@ export default function Bank() {
                 </div>
               )
             })}
+            {/* Счётчик + загрузить ещё */}
+            {data.transactions?.length > 0 && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 16px', borderTop: '1px solid var(--border)', background: 'var(--surface2)' }}>
+                <div style={{ fontSize: 12, color: 'var(--text3)' }}>
+                  Показано <strong style={{ color: 'var(--text)' }}>{data.transactions.length}</strong>
+                  {txTotal > 0 && <> из <strong style={{ color: 'var(--text)' }}>{txTotal}</strong></>} операций
+                </div>
+                {txHasMore && (
+                  <button onClick={loadMoreTx} disabled={loadingMore}
+                    style={{ fontSize: 12, fontWeight: 700, padding: '6px 16px', borderRadius: 'var(--radius-sm)', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--accent)', cursor: loadingMore ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: loadingMore ? 0.6 : 1 }}>
+                    {loadingMore ? '⏳ Загружаю...' : 'Загрузить ещё →'}
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
