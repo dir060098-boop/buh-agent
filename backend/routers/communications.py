@@ -59,13 +59,14 @@ def get_company_context(company_id: int, db: Session) -> str:
     in_pending = sum(1 for e in esf_in  if e.status == "pending")
     out_total  = sum(e.amount     or 0 for e in esf_out)
     out_vat    = sum(e.vat_amount or 0 for e in esf_out)
-    nds_pay    = round(in_vat - out_vat, 2)
+    # НДС к уплате = начисленный (исходящие) − зачёт (входящие)
+    nds_pay = round(out_vat - in_vat, 2)
 
     lines += [
         f"[ЭСФ — Q{quarter} {now.year}]",
-        f"  Входящие : {len(esf_in)} шт., сумма {in_total:,.2f} KGS, НДС {in_vat:,.2f} KGS, не принято: {in_pending}",
-        f"  Исходящие: {len(esf_out)} шт., сумма {out_total:,.2f} KGS, НДС {out_vat:,.2f} KGS",
-        f"  НДС к уплате (вх.-исх.): {nds_pay:,.2f} KGS",
+        f"  Входящие (покупки, к зачёту): {len(esf_in)} шт., сумма {in_total:,.2f} KGS, НДС {in_vat:,.2f} KGS, не принято: {in_pending}",
+        f"  Исходящие (продажи, начисленный): {len(esf_out)} шт., сумма {out_total:,.2f} KGS, НДС {out_vat:,.2f} KGS",
+        f"  НДС к уплате (исх. − вх.): {nds_pay:,.2f} KGS",
         "",
     ]
 
