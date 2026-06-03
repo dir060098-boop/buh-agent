@@ -9,10 +9,12 @@
 """
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
+import io
 from database import get_db
 from routers.auth import get_current_user
 import models
@@ -114,6 +116,165 @@ def get_book(
         "accepted_count":  sum(1 for r in records if r.status in ("accepted", "issued")),
         "pending_count":   sum(1 for r in records if r.status == "pending"),
     }
+
+
+# ── Экспорт Книги покупок/продаж в Excel ─────────────────────────────────
+@router.get("/{company_id}/book/export")
+def export_book(
+    company_id: int,
+    direction:  str = "incoming",
+    date_from:  Optional[str] = None,
+    date_to:    Optional[str] = None,
+    db:   Session = Depends(get_db),
+    user  = Depends(get_current_user),
+):
+    """Выгружает Книгу покупок или продаж в формате Excel (.xlsx)."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    import models as _m
+
+    # Получаем компанию для названия
+    company = db.query(_m.Company).filter(_m.Company.id == company_id).first()
+    company_name = company.name if company else f"Компания #{company_id}"
+
+    q = db.query(_m.ESF).filter(_m.ESF.company_id == company_id, _m.ESF.direction == direction)
+    if date_from:
+        q = q.filter(_m.ESF.esf_date >= datetime.strptime(date_from, "%Y-%m-%d"))
+    if date_to:
+        dt = datetime.strptime(date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+        q = q.filter(_m.ESF.esf_date <= dt)
+    records = q.order_by(_m.ESF.esf_date).all()
+
+    book_title = "Книга покупок" if direction == "incoming" else "Книга продаж"
+    period_str = ""
+    if date_from or date_to:
+        period_str = f"  {date_from or ''} — {date_to or ''}"
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = book_title[:31]
+
+    # Стили
+    accent   = "1A56DB"
+    hdr_fill = PatternFill("solid", fgColor=accent)
+    hdr_font = Font(name="Arial", bold=True, color="FFFFFF", size=10)
+    hdr_aln  = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    sub_fill = PatternFill("solid", fgColor="EEF2FF")
+    sub_font = Font(name="Arial", bold=True, size=10)
+    cell_font = Font(name="Arial", size=10)
+    total_font = Font(name="Arial", bold=True, size=10)
+    total_fill = PatternFill("solid", fgColor="DBEAFE")
+    thin = Side(style="thin", color="CCCCCC")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    # Заголовок книги
+    ws.merge_cells("A1:J1")
+    ws["A1"] = f"{company_name} — {book_title}{period_str}"
+    ws["A1"].font = Font(name="Arial", bold=True, size=12)
+    ws["A1"].alignment = Alignment(horizontal="left", vertical="center")
+    ws.row_dimensions[1].height = 22
+
+    ws.merge_cells("A2:J2")
+    ws["A2"] = f"Сформировано: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
+    ws["A2"].font = Font(name="Arial", size=9, color="888888")
+    ws.row_dimensions[2].height = 14
+
+    # Заголовки колонок
+    if direction == "incoming":
+        headers = ["№", "Дата ЭСФ", "Номер ЭСФ", "Поставщик", "ИНН поставщика",
+                   "Номер договора", "Сумма с НДС", "НДС", "Ставка НДС", "Статус"]
+    else:
+        headers = ["№", "Дата ЭСФ", "Номер ЭСФ", "Покупатель", "ИНН покупателя",
+                   "Номер договора", "Сумма с НДС", "НДС", "Ставка НДС", "Статус"]
+
+    for col, header in enumerate(headers, 1):
+        cell = ws.cell(row=3, column=col, value=header)
+        cell.font    = hdr_font
+        cell.fill    = hdr_fill
+        cell.alignment = hdr_aln
+        cell.border  = border
+    ws.row_dimensions[3].height = 30
+
+    # Данные
+    STATUS_RU = {"pending": "Не принят", "accepted": "Принят", "issued": "Выставлен"}
+    VAT_RATE_RU = {"12": "12%", "0": "0%", "exempt": "Без НДС"}
+
+    total_amount = 0.0
+    total_vat    = 0.0
+
+    for idx, r in enumerate(records, 1):
+        row_n = idx + 3
+        date_str = r.esf_date.strftime("%d.%m.%Y") if r.esf_date else "—"
+        counterparty = (r.supplier_name if direction == "incoming" else r.buyer_name) or "—"
+        inn          = (r.supplier_inn  if direction == "incoming" else r.buyer_inn)  or "—"
+        amount  = r.amount     or 0.0
+        vat     = r.vat_amount or 0.0
+        total_amount += amount
+        total_vat    += vat
+
+        row_data = [
+            idx, date_str, r.esf_number or "—", counterparty, inn,
+            r.contract_number or "—",
+            round(amount, 2), round(vat, 2),
+            VAT_RATE_RU.get(r.vat_rate or "12", r.vat_rate),
+            STATUS_RU.get(r.status, r.status),
+        ]
+        fill = sub_fill if idx % 2 == 0 else None
+        for col, val in enumerate(row_data, 1):
+            cell = ws.cell(row=row_n, column=col, value=val)
+            cell.font   = cell_font
+            cell.border = border
+            if fill:
+                cell.fill = fill
+            if col in (7, 8):   # суммы
+                cell.number_format = '#,##0.00'
+                cell.alignment = Alignment(horizontal="right")
+            elif col == 1:
+                cell.alignment = Alignment(horizontal="center")
+
+    # Строка итогов
+    total_row = len(records) + 4
+    ws.cell(total_row, 1, "ИТОГО").font   = total_font
+    ws.cell(total_row, 1).fill   = total_fill
+    ws.merge_cells(f"A{total_row}:F{total_row}")
+    ws.cell(total_row, 1).alignment = Alignment(horizontal="right")
+
+    for col in range(1, 11):
+        c = ws.cell(total_row, col)
+        c.border = border
+        c.fill   = total_fill
+        c.font   = total_font
+
+    t_amt = ws.cell(total_row, 7, round(total_amount, 2))
+    t_vat = ws.cell(total_row, 8, round(total_vat,    2))
+    t_amt.number_format = t_vat.number_format = '#,##0.00'
+    t_amt.alignment = t_vat.alignment = Alignment(horizontal="right")
+
+    ws.cell(total_row, 9, f"{len(records)} записей").font = total_font
+
+    # Ширины колонок
+    widths = [5, 12, 22, 35, 18, 18, 15, 13, 10, 12]
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+
+    ws.freeze_panes = "A4"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    safe_title = book_title.replace(" ", "_")
+    filename = f"{safe_title}_{company_id}"
+    if date_from: filename += f"_от{date_from}"
+    if date_to:   filename += f"_до{date_to}"
+    filename += ".xlsx"
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ── Создать ────────────────────────────────────────────────────────────────

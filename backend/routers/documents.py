@@ -52,6 +52,8 @@ def list_documents(
     posting_status: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
     user=Depends(get_current_user),
 ):
@@ -74,8 +76,9 @@ def list_documents(
     if date_to:
         q = q.filter(models.Document.doc_date <= date_to)
 
-    docs = q.order_by(models.Document.created_at.desc()).all()
-    return [doc_to_dict(d) for d in docs]
+    total = q.count()
+    docs  = q.order_by(models.Document.created_at.desc()).offset(offset).limit(limit).all()
+    return {"items": [doc_to_dict(d) for d in docs], "total": total, "has_more": offset + limit < total}
 
 
 @router.get("/doc/{document_id}")

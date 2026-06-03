@@ -102,49 +102,162 @@ def tx_to_dict(tx) -> dict:
     }
 
 
+def _get_account_name(code: str, db: Session) -> str:
+    """Возвращает название счёта по коду из плана счетов КР."""
+    acc = db.query(models.ChartOfAccount).filter(
+        models.ChartOfAccount.code == code
+    ).first()
+    return acc.name if acc else ""
+
+
+def _classify_bank_tx(purpose: str, counterparty: str, direction: str, is_cash: bool):
+    """
+    Определяет Дт/Кт счета и описание по назначению платежа.
+    Возвращает (debit, credit, description, confidence).
+
+    КР план счетов (уровень 3):
+      1110 — Касса (нац. валюта)
+      1210 — Расчётные счета в банках
+      1250 — Авансы выданные
+      1410 — Дебиторская задолженность покупателей
+      1720 — Авансы полученные от покупателей
+      3010 — Долгосрочные займы
+      3110 — Кредиторская задолженность поставщиков
+      3410 — Налог на прибыль к уплате
+      3420 — НДС к уплате
+      3430 — Прочие налоги и сборы к уплате
+      3520 — Задолженность по заработной плате
+      3530 — Задолженность перед социальным фондом (ПФР 8%)
+      3534 — Задолженность перед ГНПФР (2%)
+      8030 — Расходы по аренде, услугам, коммунальные
+      8040 — Расходы по страхованию
+      8490 — Прочие операционные расходы (комиссии банка и т.д.)
+    """
+    p = (purpose or "").lower()
+    c = (counterparty or "").lower()
+    bank_acc = "1110" if is_cash else "1210"
+    confidence = 75
+
+    # ── РАСХОД ────────────────────────────────────────────────────────────
+    if direction == "out":
+
+        # Налоги в бюджет
+        if any(w in p for w in ["угнс", "налоговая служба", "налог на доход",
+                                  "подоходный налог", "налог на прибыл"]):
+            return "3410", bank_acc, f"Уплата подоходного налога: {counterparty}", 85
+
+        if any(w in p for w in ["ндс", "налог на добавленн"]):
+            return "3420", bank_acc, f"Уплата НДС: {purpose[:80]}", 85
+
+        if any(w in p for w in ["налог", "налоги", "патент", "упрощённ"]):
+            return "3430", bank_acc, f"Уплата налогов: {purpose[:80]}", 80
+
+        # Социальный фонд
+        if any(w in p for w in ["гнпфр", "накопительн", "пенсионн фонд"]):
+            return "3534", bank_acc, f"Уплата ГНПФР (2%): {purpose[:80]}", 88
+        if any(w in p for w in ["соцфонд", "социальн фонд", "пфр", "пенсион",
+                                  "социальн взнос", "страхов взнос"]):
+            return "3530", bank_acc, f"Уплата соцфонда: {purpose[:80]}", 85
+
+        # Зарплата
+        if any(w in p for w in ["зарплат", "заработн плат", "выплата сотруд",
+                                  "оплата труда", "аванс сотруд"]):
+            return "3520", bank_acc, f"Выплата зарплаты: {counterparty}", 85
+
+        # Выданные авансы сотрудникам / подотчёт
+        if any(w in p for w in ["подотчёт", "подотчет", "командировочн",
+                                  "командировка", "авансов подотч"]):
+            return "1250", bank_acc, f"Аванс подотчётному лицу: {counterparty}", 80
+
+        # Аренда
+        if any(w in p for w in ["аренд", "наём помещ", "коворкинг"]):
+            return "8030", bank_acc, f"Аренда: {purpose[:80]}", 85
+
+        # Коммунальные услуги
+        if any(w in p for w in ["электроэнерг", "водоснабж", "теплоснабж",
+                                  "газоснабж", "коммунал", "электр"]):
+            return "8030", bank_acc, f"Коммунальные услуги: {purpose[:80]}", 85
+
+        # Банковская комиссия / РКО
+        if any(w in p for w in ["комиссия", "рко", "кассовое обслуж",
+                                  "банковское обслуж", "за ведение счёт",
+                                  "обслуживание счёт"]):
+            return "8490", bank_acc, f"Банковская комиссия: {purpose[:80]}", 88
+
+        # Страхование
+        if any(w in p for w in ["страхован", "страховка", "страховой взнос"]):
+            return "8040", bank_acc, f"Страхование: {purpose[:80]}", 85
+
+        # Возврат займа / кредита
+        if any(w in p for w in ["погашение займ", "погашение кредит",
+                                  "возврат займ", "возврат кредит"]):
+            return "3010", bank_acc, f"Погашение займа: {purpose[:80]}", 82
+
+        # Транспорт / доставка
+        if any(w in p for w in ["транспорт", "доставк", "перевозк", "логистик"]):
+            return "8030", bank_acc, f"Транспортные услуги: {purpose[:80]}", 78
+
+        # Реклама / маркетинг
+        if any(w in p for w in ["реклам", "маркетинг", "продвижен"]):
+            return "8030", bank_acc, f"Расходы на рекламу: {purpose[:80]}", 78
+
+        # По умолчанию: оплата поставщику
+        desc = f"Оплата поставщику {counterparty or ''}: {purpose[:60]}"
+        return "3110", bank_acc, desc.strip(": "), 65
+
+    # ── ПРИХОД ────────────────────────────────────────────────────────────
+    else:
+        # Возврат от поставщика
+        if any(w in p for w in ["возврат от поставщ", "возврат поставщ",
+                                  "возврат переплат"]):
+            return bank_acc, "3110", f"Возврат от поставщика: {counterparty}", 82
+
+        # Поступление займа / кредита
+        if any(w in p for w in ["займ", "кредит", "ссуда", "финансирован"]):
+            return bank_acc, "3010", f"Поступление займа: {purpose[:80]}", 80
+
+        # Аванс от покупателя
+        if any(w in p for w in ["аванс", "предоплат", "предварительн оплат"]):
+            return bank_acc, "1720", f"Аванс от покупателя: {counterparty}", 80
+
+        # По умолчанию: оплата от покупателя (дебиторка погашена)
+        desc = f"Поступление от {counterparty or ''}: {purpose[:60]}"
+        return bank_acc, "1410", desc.strip(": "), 65
+
+
 def _auto_post(tx: models.BankTransaction, acc: models.BankAccount,
                company_id: int, db: Session) -> Optional[int]:
-    """Создаёт проводку в журнале при добавлении транзакции."""
-    # Определяем счета
-    if acc.is_cash:
-        cash_acc = "1110"   # касса нац. валюта
-        if tx.direction == "in":
-            debit, credit = cash_acc, "1410"  # получили наличные от покупателя
-        else:
-            debit, credit = "3110", cash_acc  # выдали наличные поставщику
-    else:
-        bank_acc = "1210"   # расчётный счёт
-        if tx.direction == "in":
-            debit, credit = bank_acc, "1410"  # поступление на счёт
-        else:
-            debit, credit = "3110", bank_acc  # оплата со счёта
+    """Создаёт проводку в журнале при добавлении/импорте транзакции."""
+    debit, credit, description, confidence = _classify_bank_tx(
+        purpose=tx.purpose,
+        counterparty=tx.counterparty,
+        direction=tx.direction,
+        is_cash=acc.is_cash or False,
+    )
 
-    # Уточнение по назначению платежа
-    purpose_lower = (tx.purpose or "").lower()
-    counterparty_lower = (tx.counterparty or "").lower()
-    if tx.direction == "out":
-        if any(w in purpose_lower for w in ["налог", "ндс", "нпд", "налоговая", "угнс"]):
-            debit = "3410"
-        elif any(w in purpose_lower for w in ["соцфонд", "пенсион", "фомс", "страхов"]):
-            debit = "3530"
-        elif any(w in purpose_lower for w in ["зарплат", "аванс сотруд", "выплата сотруд"]):
-            debit = "3520"
-        elif any(w in purpose_lower for w in ["аренд"]):
-            debit = "8030"
+    # Названия счетов из плана счетов
+    debit_name  = _get_account_name(debit,  db)
+    credit_name = _get_account_name(credit, db)
 
-    purpose_text = tx.purpose or f"{'Поступление' if tx.direction=='in' else 'Оплата'} {tx.counterparty or ''}"
+    # Дата проводки = дата транзакции
+    from datetime import date as _date
+    entry_date = tx.date.date() if tx.date else _date.today()
 
     try:
         entry = models.JournalEntry(
-            company_id=company_id,
-            document_id=None,
-            debit_account=debit,
-            credit_account=credit,
-            amount=tx.amount,
-            currency=tx.currency or "KGS",
-            description=purpose_text[:255],
-            status="posted",
-            ai_confidence=70,
+            company_id         = company_id,
+            document_id        = None,
+            entry_date         = entry_date,
+            debit_account      = debit,
+            debit_account_name = debit_name,
+            credit_account     = credit,
+            credit_account_name= credit_name,
+            amount             = tx.amount,
+            currency           = tx.currency or "KGS",
+            description        = description[:255],
+            status             = "needs_review" if confidence < 75 else "posted",
+            ai_confidence      = confidence,
+            ai_reasoning       = f"Авторазноска банка: {description[:100]}",
         )
         db.add(entry)
         db.flush()

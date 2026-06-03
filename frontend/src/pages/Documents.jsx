@@ -63,6 +63,10 @@ export default function Documents() {
   const [selected, setSelected] = useState(null)
   const [deleting, setDeleting] = useState(null)
   const [confirmState, setConfirmState] = useState(null)
+  const [docsTotal, setDocsTotal]     = useState(0)
+  const [docsHasMore, setDocsHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const DOC_LIMIT = 100
 
   const [search, setSearch]   = useState('')
   const [docType, setDocType] = useState('')
@@ -71,16 +75,35 @@ export default function Documents() {
 
   const load = useCallback(() => {
     setLoading(true)
-    const params = {}
+    const params = { limit: DOC_LIMIT, offset: 0 }
     if (search)   params.search    = search
     if (docType)  params.doc_type  = docType
     if (dateFrom) params.date_from = dateFrom
     if (dateTo)   params.date_to   = dateTo
     documents.list(companyId, params)
-      .then(r => setDocs(r.data))
+      .then(r => {
+        setDocs(r.data.items || r.data)
+        setDocsTotal(r.data.total || 0)
+        setDocsHasMore(r.data.has_more || false)
+      })
       .catch(() => setDocs([]))
       .finally(() => setLoading(false))
   }, [companyId, search, docType, dateFrom, dateTo])
+
+  async function loadMore() {
+    setLoadingMore(true)
+    const params = { limit: DOC_LIMIT, offset: docs.length }
+    if (search)   params.search    = search
+    if (docType)  params.doc_type  = docType
+    if (dateFrom) params.date_from = dateFrom
+    if (dateTo)   params.date_to   = dateTo
+    try {
+      const r = await documents.list(companyId, params)
+      setDocs(prev => [...prev, ...(r.data.items || [])])
+      setDocsHasMore(r.data.has_more || false)
+    } catch {}
+    finally { setLoadingMore(false) }
+  }
 
   useEffect(() => { load() }, [load])
 
@@ -189,8 +212,17 @@ export default function Documents() {
         </div>
 
         {docs.length > 0 && (
-          <div style={{ marginTop: 8, fontSize: 11, color: 'var(--text3)', textAlign: 'right' }}>
-            {docs.length} {docs.length === 1 ? 'документ' : docs.length < 5 ? 'документа' : 'документов'}
+          <div style={{ marginTop: 8, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+            <div style={{ fontSize: 12, color: 'var(--text3)' }}>
+              Показано <strong style={{ color: 'var(--text)' }}>{docs.length}</strong>
+              {docsTotal > 0 && <> из <strong style={{ color: 'var(--text)' }}>{docsTotal}</strong></>} документов
+            </div>
+            {docsHasMore && (
+              <button onClick={loadMore} disabled={loadingMore}
+                style={{ fontSize: 12, fontWeight: 700, padding: '6px 16px', borderRadius: 'var(--radius-sm)', background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--accent)', cursor: loadingMore ? 'not-allowed' : 'pointer', fontFamily: 'inherit', opacity: loadingMore ? 0.6 : 1 }}>
+                {loadingMore ? '⏳ Загружаю...' : 'Загрузить ещё →'}
+              </button>
+            )}
           </div>
         )}
       </div>

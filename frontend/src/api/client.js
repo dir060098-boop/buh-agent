@@ -83,6 +83,23 @@ export const documents = {
 export const esf = {
   list:       (companyId, params)           => api.get(`/api/esf/${companyId}`, { params }),
   book:       (companyId, params)           => api.get(`/api/esf/${companyId}/book`, { params }),
+  exportBook: (companyId, params) => {
+    const base = api.defaults.baseURL || ''
+    const token = localStorage.getItem('token')
+    const qs = new URLSearchParams({ ...params }).toString()
+    const url = `${base}/api/esf/${companyId}/book/export${qs ? '?' + qs : ''}`
+    const a = document.createElement('a'); a.href = url
+    // Передаём токен через заголовок нельзя в <a href>, используем fetch+blob
+    return fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.blob())
+      .then(blob => {
+        const link = document.createElement('a')
+        link.href = URL.createObjectURL(blob)
+        link.download = params.direction === 'outgoing' ? 'Книга_продаж.xlsx' : 'Книга_покупок.xlsx'
+        link.click()
+        URL.revokeObjectURL(link.href)
+      })
+  },
   create:     (companyId, data)             => api.post(`/api/esf/${companyId}`, data),
   delete:     (companyId, esfId)            => api.delete(`/api/esf/${companyId}/${esfId}`),
   accept:     (companyId, esfId)            => api.patch(`/api/esf/${companyId}/${esfId}/accept`),
