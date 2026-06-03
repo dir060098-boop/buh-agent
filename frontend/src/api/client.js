@@ -64,6 +64,12 @@ export const posting = {
   review:         (entryId, data)   => api.patch(`/api/posting/journal/${entryId}/review`, data),
   deleteEntry:    (entryId)         => api.delete(`/api/posting/journal/${entryId}`),
   bulkDelete:     (ids)             => api.post('/api/posting/journal/bulk-delete', ids),
+  periodPreview:  (companyId, year, month) =>
+    api.get(`/api/posting/period-preview`, { params: { company_id: companyId, year, month } }),
+  closePeriod:    (companyId, year, month) =>
+    api.post(`/api/posting/close-period?company_id=${companyId}`, { year, month }),
+  closedPeriods:  (companyId) =>
+    api.get(`/api/posting/closed-periods`, { params: { company_id: companyId } }),
 }
 
 export const documents = {

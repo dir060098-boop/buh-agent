@@ -280,6 +280,8 @@ class JournalEntry(Base):
     status = Column(String(20), default="posted")  # posted / needs_review / rejected
     reviewed_by = Column(String(255))
     reviewed_at = Column(DateTime)
+    is_archived = Column(Boolean, default=False)   # True = период закрыт
+    archived_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     company = relationship("Company", back_populates="journal_entries")
     document = relationship("Document", back_populates="journal_entries")

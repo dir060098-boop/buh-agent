@@ -244,6 +244,7 @@ def get_journal(
     status: Optional[str] = None,
     counterparty: Optional[str] = None,
     debit_account: Optional[str] = None,
+    include_archived: bool = False,   # False = только активный период
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -255,6 +256,10 @@ def get_journal(
     q = db.query(JournalEntry, Document).outerjoin(
         Document, JournalEntry.document_id == Document.id
     ).filter(JournalEntry.company_id == company_id)
+
+    # По умолчанию скрываем архивные (закрытые периоды)
+    if not include_archived:
+        q = q.filter(JournalEntry.is_archived == False)
 
     if date_from:
         q = q.filter(JournalEntry.entry_date >= date_from)
@@ -296,12 +301,130 @@ def get_journal(
             "ai_confidence": e.ai_confidence,
             "ai_reasoning": e.ai_reasoning,
             "status": e.status,
+            "is_archived": e.is_archived or False,
+            "archived_at": str(e.archived_at) if e.archived_at else None,
             "document_id": e.document_id,
             "reviewed_by": e.reviewed_by,
             "reviewed_at": str(e.reviewed_at) if e.reviewed_at else None,
             "created_at": str(e.created_at)
         })
     return result
+
+
+# ── Предпросмотр закрытия периода ─────────────────────────────────────────
+@router.get("/period-preview")
+def period_preview(
+    company_id: int,
+    year: int,
+    month: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Сколько posted-проводок будет заархивировано за выбранный месяц."""
+    company = db.query(Company).filter(
+        Company.id == company_id, Company.owner_id == current_user.id
+    ).first()
+    if not company:
+        raise HTTPException(403, "Нет доступа")
+
+    from_date = date(year, month, 1)
+    to_date   = date(year + 1, 1, 1) if month == 12 else date(year, month + 1, 1)
+
+    count = db.query(JournalEntry).filter(
+        JournalEntry.company_id == company_id,
+        JournalEntry.entry_date >= from_date,
+        JournalEntry.entry_date <  to_date,
+        JournalEntry.status     == "posted",
+        JournalEntry.is_archived == False,
+    ).count()
+
+    MONTHS_RU = ["","Январь","Февраль","Март","Апрель","Май","Июнь",
+                 "Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"]
+    return {
+        "year": year, "month": month,
+        "period_label": f"{MONTHS_RU[month]} {year}",
+        "count": count,
+    }
+
+
+# ── Закрыть период (архивировать) ─────────────────────────────────────────
+class ClosePeriodRequest(BaseModel):
+    year: int
+    month: int   # 1–12
+
+@router.post("/close-period")
+def close_period(
+    company_id: int,
+    data: ClosePeriodRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Архивирует все posted-проводки за выбранный месяц."""
+    company = db.query(Company).filter(
+        Company.id == company_id, Company.owner_id == current_user.id
+    ).first()
+    if not company:
+        raise HTTPException(403, "Нет доступа")
+
+    from_date = date(data.year, data.month, 1)
+    to_date   = date(data.year + 1, 1, 1) if data.month == 12 else date(data.year, data.month + 1, 1)
+
+    entries = db.query(JournalEntry).filter(
+        JournalEntry.company_id == company_id,
+        JournalEntry.entry_date >= from_date,
+        JournalEntry.entry_date <  to_date,
+        JournalEntry.status     == "posted",
+        JournalEntry.is_archived == False,
+    ).all()
+
+    now = datetime.utcnow()
+    for e in entries:
+        e.is_archived = True
+        e.archived_at = now
+    db.commit()
+
+    MONTHS_RU = ["","Январь","Февраль","Март","Апрель","Май","Июнь",
+                 "Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"]
+    return {
+        "archived": len(entries),
+        "period_label": f"{MONTHS_RU[data.month]} {data.year}",
+    }
+
+
+# ── Список закрытых периодов компании ────────────────────────────────────
+@router.get("/closed-periods")
+def get_closed_periods(
+    company_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Возвращает список месяцев с архивными проводками и их количество."""
+    company = db.query(Company).filter(
+        Company.id == company_id, Company.owner_id == current_user.id
+    ).first()
+    if not company:
+        raise HTTPException(403, "Нет доступа")
+
+    from sqlalchemy import func, extract
+    rows = db.query(
+        extract("year",  JournalEntry.entry_date).label("year"),
+        extract("month", JournalEntry.entry_date).label("month"),
+        func.count(JournalEntry.id).label("count"),
+    ).filter(
+        JournalEntry.company_id == company_id,
+        JournalEntry.is_archived == True,
+    ).group_by("year", "month").order_by("year", "month").all()
+
+    MONTHS_RU = ["","Январь","Февраль","Март","Апрель","Май","Июнь",
+                 "Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"]
+    return [
+        {
+            "year": int(r.year), "month": int(r.month),
+            "period_label": f"{MONTHS_RU[int(r.month)]} {int(r.year)}",
+            "count": r.count,
+        }
+        for r in rows
+    ]
 
 
 @router.get("/daily-report")

@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { posting, documents as docsApi, scanner as scannerApi } from '../api/client'
+
+const MONTHS_RU = ["","Январь","Февраль","Март","Апрель","Май","Июнь",
+                   "Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"]
 import NavBar from '../components/NavBar'
 
 const S_LABEL = { posted:'Проведено', needs_review:'На проверке', rejected:'Отклонено' }
@@ -204,6 +207,14 @@ export default function Journal(){
   const [selected,setSelected]=useState(new Set())
   const [docViewEntry,setDocViewEntry]=useState(null)
   const [copyMsg,setCopyMsg]=useState(null)
+  // Закрытие периода
+  const [showArchived,setShowArchived]=useState(false)
+  const [showClosePeriod,setShowClosePeriod]=useState(false)
+  const [cpYear,setCpYear]=useState(new Date().getFullYear())
+  const [cpMonth,setCpMonth]=useState(new Date().getMonth()||12) // прошлый месяц
+  const [cpPreview,setCpPreview]=useState(null)   // {count, period_label}
+  const [cpClosing,setCpClosing]=useState(false)
+  const [closedPeriods,setClosedPeriods]=useState([])
 
   function copyToClipboard(text,label){
     navigator.clipboard.writeText(text).then(()=>{setCopyMsg(label);setTimeout(()=>setCopyMsg(null),2000)})
@@ -217,11 +228,17 @@ export default function Journal(){
       if(filterDateFrom)params.date_from=filterDateFrom
       if(filterDateTo)params.date_to=filterDateTo
       if(filterCounterparty)params.counterparty=filterCounterparty
+      if(showArchived)params.include_archived=true
       const res=await posting.journal(companyId,params)
       setEntries(res.data)
     }catch(e){console.error(e)}
     finally{setLoading(false)}
-  },[companyId,filterStatus,filterDateFrom,filterDateTo,filterCounterparty])
+  },[companyId,filterStatus,filterDateFrom,filterDateTo,filterCounterparty,showArchived])
+
+  // Загружаем список закрытых периодов
+  useEffect(()=>{
+    posting.closedPeriods(companyId).then(r=>setClosedPeriods(r.data)).catch(()=>{})
+  },[companyId])
 
   useEffect(()=>{loadJournal()},[loadJournal])
   useEffect(()=>{if(tab==='report')loadReport()},[tab,reportDate])
@@ -231,6 +248,33 @@ export default function Journal(){
     try{const res=await posting.dailyReport(companyId,reportDate);setReport(res.data)}
     catch(e){console.error(e)}finally{setLoading(false)}
   }
+  // Предпросмотр: сколько проводок будет закрыто
+  async function loadCpPreview(year,month){
+    setCpPreview(null)
+    try{
+      const r=await posting.periodPreview(companyId,year,month)
+      setCpPreview(r.data)
+    }catch(e){}
+  }
+  // При открытии модала — сразу грузим предпросмотр
+  useEffect(()=>{
+    if(showClosePeriod)loadCpPreview(cpYear,cpMonth)
+  },[showClosePeriod,cpYear,cpMonth])
+
+  async function handleClosePeriod(){
+    setCpClosing(true)
+    try{
+      const r=await posting.closePeriod(companyId,cpYear,cpMonth)
+      setShowClosePeriod(false)
+      setCpPreview(null)
+      await loadJournal()
+      posting.closedPeriods(companyId).then(r=>setClosedPeriods(r.data)).catch(()=>{})
+      setCopyMsg(`Период ${r.data.period_label} закрыт — ${r.data.archived} проводок`)
+      setTimeout(()=>setCopyMsg(null),4000)
+    }catch(e){alert(e.response?.data?.detail||'Ошибка закрытия периода')}
+    finally{setCpClosing(false)}
+  }
+
   async function runAutoAll(){
     setPostingAll(true)
     try{await posting.autoAll(companyId);await loadJournal()}
@@ -277,6 +321,13 @@ export default function Journal(){
           ):(
             <>
               <button onClick={()=>setSelectMode(true)} style={{background:'var(--surface2)',color:'var(--text2)',border:'1px solid var(--border)',padding:'7px 14px',borderRadius:'var(--radius-sm)',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}}>☑ Выбрать</button>
+              <button
+                onClick={()=>{setShowArchived(v=>!v)}}
+                style={{background:showArchived?'var(--warn-light)':'var(--surface2)',color:showArchived?'var(--warn)':'var(--text2)',border:`1px solid ${showArchived?'var(--warn)':'var(--border)'}`,padding:'7px 14px',borderRadius:'var(--radius-sm)',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}}>
+                {showArchived?'📂 Скрыть архив':'📦 Архив'}
+                {!showArchived&&closedPeriods.length>0&&<span style={{marginLeft:5,background:'var(--warn)',color:'#fff',borderRadius:10,padding:'0 5px',fontSize:10}}>{closedPeriods.length}</span>}
+              </button>
+              <button onClick={()=>setShowClosePeriod(true)} style={{background:'var(--surface2)',color:'var(--text2)',border:'1px solid var(--border)',padding:'7px 14px',borderRadius:'var(--radius-sm)',fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}}>🔒 Закрыть период</button>
               <button onClick={runAutoAll} disabled={postingAll} style={{background:postingAll?'var(--text3)':'var(--accent)',color:'#fff',border:'none',padding:'7px 14px',borderRadius:'var(--radius-sm)',fontSize:12,fontWeight:700,cursor:postingAll?'not-allowed':'pointer',fontFamily:'inherit',boxShadow:'var(--shadow-sm)'}}>{postingAll?'⏳ Разношу...':'⚡ Разнести все'}</button>
             </>
           )}
@@ -349,9 +400,10 @@ export default function Journal(){
                     {/* Строка */}
                     <div onClick={()=>!selectMode&&setExpanded(expanded===e.id?null:e.id)}
                       style={{display:'grid',gridTemplateColumns:cols,gap:6,padding:'11px 14px',borderBottom:'1px solid var(--border)',alignItems:'center',cursor:'pointer',
-                        background:selected.has(e.id)?'var(--accent-light)':e.status==='needs_review'?'var(--warn-light)':expanded===e.id?'var(--surface2)':'var(--surface)',transition:'background 0.1s'}}
+                        opacity: e.is_archived ? 0.55 : 1,
+                        background:selected.has(e.id)?'var(--accent-light)':e.is_archived?'var(--surface2)':e.status==='needs_review'?'var(--warn-light)':expanded===e.id?'var(--surface2)':'var(--surface)',transition:'background 0.1s'}}
                       onMouseEnter={ev=>{if(!selectMode&&!selected.has(e.id)&&e.status!=='needs_review')ev.currentTarget.style.background='var(--surface2)'}}
-                      onMouseLeave={ev=>{if(!selectMode)ev.currentTarget.style.background=selected.has(e.id)?'var(--accent-light)':e.status==='needs_review'?'var(--warn-light)':expanded===e.id?'var(--surface2)':'var(--surface)'}}>
+                      onMouseLeave={ev=>{if(!selectMode)ev.currentTarget.style.background=selected.has(e.id)?'var(--accent-light)':e.is_archived?'var(--surface2)':e.status==='needs_review'?'var(--warn-light)':expanded===e.id?'var(--surface2)':'var(--surface)'}}>
 
                       {selectMode&&<div style={{display:'flex',alignItems:'center',justifyContent:'center'}} onClick={ev=>ev.stopPropagation()}><input type="checkbox" checked={selected.has(e.id)} onChange={()=>toggleSelect(e.id)}/></div>}
 
@@ -368,10 +420,13 @@ export default function Journal(){
                         {e.currency!=='KGS'&&e.amount_kgs&&<div style={{fontSize:10,color:'var(--accent)'}}>≈{Number(e.amount_kgs).toLocaleString('ru-RU')} KGS</div>}
                       </div>
                       <div style={{display:'flex',flexDirection:'column',gap:3,alignItems:'flex-start'}}>
-                        <span style={{fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:20,background:S_BG[e.status]||'var(--surface2)',color:S_COLOR[e.status]||'var(--text3)',whiteSpace:'nowrap',border:`1px solid ${S_COLOR[e.status]||'var(--border)'}33`}}>{S_LABEL[e.status]||e.status}</span>
-                        {e.status==='needs_review'&&<button onClick={ev=>{ev.stopPropagation();setReviewEntry(e)}} style={{fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:'var(--radius-sm)',background:'var(--warn)',color:'#fff',border:'none',cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>Проверить</button>}
-                        <button onClick={ev=>{ev.stopPropagation();setReviewEntry(e)}} style={{fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:'var(--radius-sm)',background:'var(--surface2)',color:'var(--text2)',border:'1px solid var(--border)',cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>✏️ Исправить</button>
-                        <button onClick={ev=>{ev.stopPropagation();setDeleteEntry(e)}} style={{fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:'var(--radius-sm)',background:'none',color:'var(--error)',border:`1px solid var(--error)44`,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>🗑 Удалить</button>
+                        {e.is_archived
+                          ? <span style={{fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:20,background:'var(--surface2)',color:'var(--text3)',whiteSpace:'nowrap',border:'1px solid var(--border)'}}>📦 Архив</span>
+                          : <span style={{fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:20,background:S_BG[e.status]||'var(--surface2)',color:S_COLOR[e.status]||'var(--text3)',whiteSpace:'nowrap',border:`1px solid ${S_COLOR[e.status]||'var(--border)'}33`}}>{S_LABEL[e.status]||e.status}</span>
+                        }
+                        {!e.is_archived&&e.status==='needs_review'&&<button onClick={ev=>{ev.stopPropagation();setReviewEntry(e)}} style={{fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:'var(--radius-sm)',background:'var(--warn)',color:'#fff',border:'none',cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>Проверить</button>}
+                        {!e.is_archived&&<button onClick={ev=>{ev.stopPropagation();setReviewEntry(e)}} style={{fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:'var(--radius-sm)',background:'var(--surface2)',color:'var(--text2)',border:'1px solid var(--border)',cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>✏️ Исправить</button>}
+                        {!e.is_archived&&<button onClick={ev=>{ev.stopPropagation();setDeleteEntry(e)}} style={{fontSize:10,fontWeight:700,padding:'2px 7px',borderRadius:'var(--radius-sm)',background:'none',color:'var(--error)',border:`1px solid var(--error)44`,cursor:'pointer',fontFamily:'inherit',whiteSpace:'nowrap'}}>🗑 Удалить</button>}
                         <div style={{fontSize:10,color:e.ai_confidence>=85?'var(--success)':e.ai_confidence>=60?'var(--warn)':'var(--error)'}}>{e.ai_confidence}% AI</div>
                       </div>
                     </div>
@@ -501,6 +556,90 @@ export default function Journal(){
 
       {reviewEntry&&<ReviewModal entry={reviewEntry} onClose={()=>setReviewEntry(null)} onDone={()=>{setReviewEntry(null);loadJournal()}}/>}
       {docViewEntry&&<DocViewModal entry={docViewEntry} onClose={()=>setDocViewEntry(null)}/>}
+
+      {/* ── Модал: Закрыть период ─────────────────────────────────── */}
+      {showClosePeriod&&(
+        <div onClick={()=>!cpClosing&&setShowClosePeriod(false)}
+          style={{position:'fixed',inset:0,background:'rgba(30,42,62,0.55)',zIndex:200,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+          <div onClick={e=>e.stopPropagation()}
+            style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',width:'100%',maxWidth:460,boxShadow:'var(--shadow-lg)',overflow:'hidden'}}>
+
+            {/* Шапка */}
+            <div style={{padding:'16px 20px',borderBottom:'1px solid var(--border)',background:'var(--surface2)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div style={{fontWeight:800,fontSize:15,color:'var(--text)'}}>🔒 Закрыть отчётный период</div>
+              <button onClick={()=>setShowClosePeriod(false)} style={{background:'none',border:'none',fontSize:20,color:'var(--text3)',cursor:'pointer',lineHeight:1}}>×</button>
+            </div>
+
+            <div style={{padding:'20px'}}>
+              {/* Выбор периода */}
+              <div style={{marginBottom:16}}>
+                <div style={{fontSize:11,fontWeight:700,color:'var(--text3)',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:8}}>Выберите период</div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 100px',gap:10}}>
+                  <select value={cpMonth} onChange={e=>{setCpMonth(+e.target.value)}}
+                    style={{...INP2,width:'100%'}}>
+                    {MONTHS_RU.slice(1).map((m,i)=><option key={i+1} value={i+1}>{m}</option>)}
+                  </select>
+                  <select value={cpYear} onChange={e=>{setCpYear(+e.target.value)}}
+                    style={{...INP2,width:'100%'}}>
+                    {[2024,2025,2026,2027].map(y=><option key={y}>{y}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Предпросмотр */}
+              <div style={{background:'var(--surface2)',borderRadius:'var(--radius)',padding:'14px 16px',marginBottom:16,border:'1px solid var(--border)'}}>
+                {cpPreview===null
+                  ? <div style={{fontSize:13,color:'var(--text3)'}}>⏳ Считаю...</div>
+                  : cpPreview.count===0
+                    ? <div style={{fontSize:13,color:'var(--text3)'}}>
+                        За <strong>{cpPreview.period_label}</strong> нет проводок для закрытия
+                      </div>
+                    : <>
+                        <div style={{fontSize:14,fontWeight:700,color:'var(--text)',marginBottom:8}}>
+                          За <span style={{color:'var(--accent)'}}>{cpPreview.period_label}</span> будет заархивировано:
+                        </div>
+                        <div style={{fontSize:22,fontWeight:800,color:'var(--accent)',marginBottom:8}}>{cpPreview.count} проводок</div>
+                        <div style={{fontSize:12,color:'var(--text3)',lineHeight:1.6}}>
+                          ✅ Только статус «Проведено»<br/>
+                          ⚠️ «На проверке» — <strong>не архивируются</strong><br/>
+                          📦 После закрытия скрываются в основном журнале
+                        </div>
+                      </>
+                }
+              </div>
+
+              {/* Список уже закрытых периодов */}
+              {closedPeriods.length>0&&(
+                <div style={{marginBottom:16}}>
+                  <div style={{fontSize:11,fontWeight:700,color:'var(--text3)',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:6}}>Уже закрытые периоды</div>
+                  <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+                    {closedPeriods.map(p=>(
+                      <span key={`${p.year}-${p.month}`}
+                        style={{fontSize:11,padding:'3px 10px',borderRadius:20,background:'var(--surface2)',border:'1px solid var(--border)',color:'var(--text3)'}}>
+                        📦 {p.period_label} ({p.count})
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Кнопки */}
+              <div style={{display:'flex',gap:10}}>
+                <button
+                  onClick={handleClosePeriod}
+                  disabled={cpClosing||!cpPreview||cpPreview.count===0}
+                  style={{flex:2,background:(!cpPreview||cpPreview.count===0)?'var(--text4)':'var(--accent)',color:'#fff',border:'none',padding:12,borderRadius:'var(--radius)',fontSize:14,fontWeight:800,cursor:(!cpPreview||cpPreview.count===0)?'not-allowed':'pointer',fontFamily:'inherit',boxShadow:cpPreview?.count>0?'var(--shadow)':'none'}}>
+                  {cpClosing?'⏳ Закрываю...':'🔒 Закрыть период'}
+                </button>
+                <button onClick={()=>setShowClosePeriod(false)}
+                  style={{flex:1,background:'none',color:'var(--text2)',border:'1px solid var(--border)',padding:12,borderRadius:'var(--radius)',cursor:'pointer',fontFamily:'inherit'}}>
+                  Отмена
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Toast */}
       {copyMsg&&(
