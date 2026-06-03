@@ -15,6 +15,33 @@ function fmtDate(s) {
   return `${d}.${m}.${y}`
 }
 
+// Сокращает официальные наименования юрлиц
+function shortenCounterparty(name) {
+  if (!name) return '—'
+  return name
+    .replace(/Открытое\s+[Аа]кционерное\s+[Оо]бщество\s*/g, 'ОАО ')
+    .replace(/Закрытое\s+[Аа]кционерное\s+[Оо]бщество\s*/g, 'ЗАО ')
+    .replace(/[Оо]бщество\s+с\s+ограниченной\s+ответственностью\s*/g, 'ООО ')
+    .replace(/[Аа]кционерное\s+[Оо]бщество\s*/g, 'АО ')
+    .replace(/[Пп]убличное\s+[Аа]кционерное\s+[Оо]бщество\s*/g, 'ПАО ')
+    .replace(/[Ии]ндивидуальный\s+[Пп]редприниматель\s*/g, 'ИП ')
+    .replace(/[Оо]ткрытое\s+[Аа]кционерное\s*/g, 'ОАО ')
+    .trim()
+}
+
+// Нормализует название банка для отображения
+function normalizeBankName(name) {
+  if (!name) return 'Банк'
+  const l = name.toLowerCase().replace(/\s+/g, '')
+  if (l.includes('optima') || l.includes('оптима')) return 'Оптима Банк'
+  if (l.includes('demir') || l.includes('демир'))   return 'Демир Банк'
+  if (l.includes('bakay') || l.includes('бакай'))   return 'Бакай Банк'
+  if (l.includes('rsk')   || l.includes('рск'))     return 'РСК Банк'
+  if (l.includes('mbank') || l.includes('мбанк'))   return 'MBank'
+  if (l.includes('bakai') || l.includes('бакаи'))   return 'Бакай Банк'
+  return name
+}
+
 const SEL = { background: 'var(--surface)', border: '1.5px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '8px 10px', color: 'var(--text)', fontSize: 13, fontFamily: 'Manrope, sans-serif', cursor: 'pointer' }
 const INP = { ...SEL, cursor: 'text', width: '100%', boxSizing: 'border-box' }
 const LBL = { display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }
@@ -339,7 +366,7 @@ export default function Bank() {
                     style={{ background: 'none', border: 'none', color: 'var(--text4)', fontSize: 14, cursor: 'pointer', padding: 2, lineHeight: 1 }}>×</button>
                 </div>
                 <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', marginBottom: 2 }}>
-                  {acc.is_cash ? '💵 КАССА' : '🏦 ' + (acc.bank_name || 'БАНК')}
+                  {acc.is_cash ? '💵 КАССА' : '🏦 ' + normalizeBankName(acc.bank_name)}
                 </div>
                 {acc.account_number && (
                   <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>
@@ -428,7 +455,7 @@ export default function Bank() {
         {/* Таблица операций */}
         {accounts.length > 0 && (
           <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '90px 130px 1fr 1fr 110px 110px 70px', gap: 8, padding: '10px 16px', borderBottom: '2px solid var(--border)', background: 'var(--surface2)', fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '90px 150px 1fr 1fr 110px 110px 70px', gap: 8, padding: '10px 16px', borderBottom: '2px solid var(--border)', background: 'var(--surface2)', fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
               <div>Дата</div>
               <div>Счёт</div>
               <div>Контрагент</div>
@@ -450,15 +477,22 @@ export default function Bank() {
               const unmatched = tx.status === 'unmatched'
               return (
                 <div key={tx.id}
-                  style={{ display: 'grid', gridTemplateColumns: '90px 130px 1fr 1fr 110px 110px 70px', gap: 8, padding: '10px 16px', borderBottom: '1px solid var(--border)', alignItems: 'center' }}
+                  style={{ display: 'grid', gridTemplateColumns: '90px 150px 1fr 1fr 110px 110px 70px', gap: 8, padding: '10px 16px', borderBottom: '1px solid var(--border)', alignItems: 'center' }}
                   onMouseEnter={e => e.currentTarget.style.background = 'var(--surface2)'}
                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                   <div style={{ fontSize: 12, color: 'var(--text2)' }}>{fmtDate(tx.date)}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {acc ? (acc.is_cash ? '💵 Касса' : '🏦 ' + acc.bank_name) : '—'}
+                  <div style={{ fontSize: 11, color: 'var(--text3)', overflow: 'hidden' }}>
+                    <div style={{ fontWeight: 600, color: 'var(--text2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {acc ? (acc.is_cash ? '💵 Касса' : '🏦 ' + normalizeBankName(acc.bank_name)) : '—'}
+                    </div>
+                    {acc?.account_number && (
+                      <div style={{ fontSize: 10, color: 'var(--text4)', fontVariantNumeric: 'tabular-nums' }}>
+                        …{acc.account_number.slice(-6)}
+                      </div>
+                    )}
                   </div>
                   <div style={{ fontSize: 13, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {tx.counterparty || '—'}
+                    {shortenCounterparty(tx.counterparty)}
                     {unmatched && <span style={{ marginLeft: 6, fontSize: 9, background: 'var(--warn-light)', color: 'var(--warn)', padding: '1px 5px', borderRadius: 8, fontWeight: 700 }}>не сверено</span>}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tx.purpose || '—'}</div>
@@ -600,7 +634,7 @@ export default function Bank() {
                   <option value="">Выберите счёт</option>
                   {accounts.map(a => (
                     <option key={a.id} value={a.id}>
-                      {a.is_cash ? '💵 ' : '🏦 '}{a.bank_name} {a.account_number ? `(${a.account_number.slice(-4)})` : ''} — {fmt(a.balance, a.currency)}
+                      {a.is_cash ? '💵 ' : '🏦 '}{normalizeBankName(a.bank_name)} {a.account_number ? `(…${a.account_number.slice(-6)})` : ''} — {fmt(a.balance, a.currency)}
                     </option>
                   ))}
                 </select>
@@ -799,7 +833,7 @@ export default function Bank() {
                   <option value="">Выберите счёт</option>
                   {accounts.filter(a => !a.is_cash).map(a => (
                     <option key={a.id} value={a.id}>
-                      🏦 {a.bank_name} {a.account_number ? `(…${a.account_number.slice(-6)})` : ''}
+                      🏦 {normalizeBankName(a.bank_name)} {a.account_number ? `(…${a.account_number.slice(-6)})` : ''}
                     </option>
                   ))}
                 </select>
