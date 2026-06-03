@@ -241,6 +241,94 @@ def dashboard_summary(db: Session = Depends(get_db), user=Depends(get_current_us
     }
 
 
+@router.get("/{company_id}/stats")
+def get_company_stats(company_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Сводка по компании для страницы CompanyMenu."""
+    from datetime import date, timedelta, datetime as _dt
+    c = db.query(models.Company).filter(
+        models.Company.id == company_id, models.Company.owner_id == user.id
+    ).first()
+    if not c:
+        raise HTTPException(404, "Компания не найдена")
+
+    today = date.today()
+    soon  = today + timedelta(days=7)
+
+    # Документы
+    pending_docs  = db.query(models.Document).filter(
+        models.Document.company_id    == company_id,
+        models.Document.posting_status == "pending",
+        models.Document.amount        != None,
+    ).count()
+    doc_count = db.query(models.Document).filter(models.Document.company_id == company_id).count()
+
+    # Журнал
+    journal_count = db.query(models.JournalEntry).filter(
+        models.JournalEntry.company_id == company_id
+    ).count()
+    needs_review  = db.query(models.JournalEntry).filter(
+        models.JournalEntry.company_id == company_id,
+        models.JournalEntry.status     == "needs_review",
+    ).count()
+
+    # ЭСФ
+    esf_pending = db.query(models.ESF).filter(
+        models.ESF.company_id == company_id,
+        models.ESF.status     == "pending",
+    ).count()
+
+    # Банк
+    acc_ids = [a.id for a in db.query(models.BankAccount).filter(
+        models.BankAccount.company_id == company_id
+    ).all()]
+    unmatched_bank = 0
+    if acc_ids:
+        unmatched_bank = db.query(models.BankTransaction).filter(
+            models.BankTransaction.account_id.in_(acc_ids),
+            models.BankTransaction.status == "unmatched",
+        ).count()
+
+    # Дедлайны
+    overdue_deadlines  = db.query(models.Deadline).filter(
+        models.Deadline.company_id   == company_id,
+        models.Deadline.is_done      == False,
+        models.Deadline.deadline_date < _dt.combine(today, _dt.min.time()),
+    ).count()
+    upcoming = db.query(models.Deadline).filter(
+        models.Deadline.company_id    == company_id,
+        models.Deadline.is_done       == False,
+        models.Deadline.deadline_date >= _dt.combine(today, _dt.min.time()),
+        models.Deadline.deadline_date <= _dt.combine(soon,  _dt.max.time()),
+    ).order_by(models.Deadline.deadline_date).all()
+
+    # Здоровье: error > warn > ok
+    health = "ok"
+    if overdue_deadlines > 0:
+        health = "error"
+    elif pending_docs > 0 or needs_review > 0 or esf_pending > 0:
+        health = "warn"
+
+    return {
+        "health": health,
+        "doc_count":        doc_count,
+        "pending_docs":     pending_docs,
+        "journal_count":    journal_count,
+        "needs_review":     needs_review,
+        "esf_pending":      esf_pending,
+        "unmatched_bank":   unmatched_bank,
+        "overdue_deadlines": overdue_deadlines,
+        "upcoming_deadlines": [
+            {
+                "id":    d.id,
+                "title": d.title,
+                "date":  d.deadline_date.strftime("%d.%m.%Y"),
+                "days_left": (d.deadline_date.date() - today).days,
+            }
+            for d in upcoming
+        ],
+    }
+
+
 @router.get("/{company_id}")
 def get_company(company_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     c = db.query(models.Company).filter(

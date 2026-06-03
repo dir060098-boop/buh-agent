@@ -35,6 +35,7 @@ export const companies = {
   update:  (id, data) => api.patch(`/api/companies/${id}`, data),
   delete:  (id)       => api.delete(`/api/companies/${id}`),
   summary: ()         => api.get('/api/companies/dashboard/summary'),
+  stats:   (id)       => api.get(`/api/companies/${id}/stats`),
 }
 
 export const scanner = {
