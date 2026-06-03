@@ -176,6 +176,35 @@ def _run_migrations():
             sf_employer FLOAT,
             net FLOAT
         )""",
+        # journal_entries — закрытие периода
+        "ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS is_archived BOOLEAN DEFAULT FALSE",
+        "ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS archived_at TIMESTAMP",
+        # journal_entries — дата проводки (entry_date) уже должна быть, но на всякий случай
+        "ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS entry_date DATE",
+        # journal_entries — имена счетов
+        "ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS debit_account_name VARCHAR(255)",
+        "ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS credit_account_name VARCHAR(255)",
+        "ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS ai_reasoning TEXT",
+        "ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR(255)",
+        "ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP",
+        # esf — linked_document_id
+        "ALTER TABLE esf ADD COLUMN IF NOT EXISTS linked_document_id INTEGER REFERENCES documents(id)",
+        # chat_messages — новая таблица (create_all создаст, но добавим IF NOT EXISTS на случай)
+        """CREATE TABLE IF NOT EXISTS chat_messages (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL REFERENCES companies(id),
+            role VARCHAR(20) NOT NULL,
+            content TEXT NOT NULL,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        )""",
+        # client_messages — новая таблица
+        """CREATE TABLE IF NOT EXISTS client_messages (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL REFERENCES companies(id),
+            message_type VARCHAR(50) DEFAULT 'status',
+            content TEXT NOT NULL,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        )""",
     ]
     try:
         with engine.connect() as conn:
