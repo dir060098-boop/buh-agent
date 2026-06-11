@@ -210,6 +210,7 @@ export default function Journal(){
   const [totalEntries,setTotalEntries]=useState(0)
   const [hasMore,setHasMore]=useState(false)
   const [loadingMore,setLoadingMore]=useState(false)
+  const [serverStats,setServerStats]=useState(null)
   const PAGE=100
   // Закрытие периода
   const [showArchived,setShowArchived]=useState(false)
@@ -238,6 +239,12 @@ export default function Journal(){
       setEntries(res.data.items)
       setTotalEntries(res.data.total)
       setHasMore(res.data.has_more)
+      // Серверная статистика — параллельно, не блокирует список
+      const statsParams={}
+      if(filterDateFrom)statsParams.date_from=filterDateFrom
+      if(filterDateTo)statsParams.date_to=filterDateTo
+      if(showArchived)statsParams.include_archived=true
+      posting.journalStats(companyId,statsParams).then(r=>setServerStats(r.data)).catch(()=>{})
     }catch(e){console.error(e)}
     finally{setLoading(false)}
   },[companyId,filterStatus,filterDateFrom,filterDateTo,filterCounterparty,showArchived])
@@ -282,6 +289,17 @@ export default function Journal(){
     finally{setCpClosing(false)}
   }
 
+  async function handleReopenPeriod(year,month){
+    if(!window.confirm('Переоткрыть период? Проводки вернутся в основной журнал.'))return
+    try{
+      const r=await posting.reopenPeriod(companyId,year,month)
+      await loadJournal()
+      posting.closedPeriods(companyId).then(r=>setClosedPeriods(r.data)).catch(()=>{})
+      setCopyMsg(`Период ${r.data.period_label} переоткрыт — ${r.data.reopened} проводок`)
+      setTimeout(()=>setCopyMsg(null),4000)
+    }catch(e){alert(e.response?.data?.detail||'Ошибка переоткрытия')}
+  }
+
   async function loadMore(){
     setLoadingMore(true)
     try{
@@ -319,9 +337,11 @@ export default function Journal(){
   }
   function toggleSelect(id){setSelected(prev=>{const s=new Set(prev);s.has(id)?s.delete(id):s.add(id);return s})}
 
-  const needsReview=entries.filter(e=>e.status==='needs_review').length
-  const totalPosted=entries.filter(e=>e.status==='posted').length
-  const totalKgs=entries.filter(e=>e.status==='posted').reduce((s,e)=>s+(e.amount_kgs||(e.currency==='KGS'?e.amount:0)),0)
+  // Серверная статистика (вся выборка, не зависит от пагинации)
+  const needsReview = serverStats?.needs_review ?? entries.filter(e=>e.status==='needs_review').length
+  const totalPosted = serverStats?.posted ?? entries.filter(e=>e.status==='posted').length
+  const totalKgs    = serverStats?.total_kgs ?? entries.filter(e=>e.status==='posted').reduce((s,e)=>s+(e.amount_kgs||(e.currency==='KGS'?e.amount:0)),0)
+  const totalCount  = serverStats?.total ?? entries.length
   const cols=selectMode?'28px 36px 70px 100px 130px 1fr 90px 90px 110px 110px':'36px 70px 100px 130px 1fr 90px 90px 110px 110px'
 
   return(
@@ -360,7 +380,7 @@ export default function Journal(){
       {/* Статистика */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,padding:'16px 20px 0'}}>
         {[
-          {label:'Всего записей',value:entries.length,color:'var(--text)'},
+          {label:'Всего записей',value:totalCount,color:'var(--text)'},
           {label:'Проведено',value:totalPosted,color:'var(--success)'},
           {label:'На проверке',value:needsReview,color:'var(--warn)',action:needsReview>0?()=>setFilterStatus('needs_review'):null},
           {label:'Итого KGS',value:totalKgs>0?fmt(totalKgs):'—',color:'var(--accent)',small:true},
@@ -645,16 +665,22 @@ export default function Journal(){
                 }
               </div>
 
-              {/* Список уже закрытых периодов */}
+              {/* Список уже закрытых периодов — клик = переоткрыть */}
               {closedPeriods.length>0&&(
                 <div style={{marginBottom:16}}>
-                  <div style={{fontSize:11,fontWeight:700,color:'var(--text3)',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:6}}>Уже закрытые периоды</div>
+                  <div style={{fontSize:11,fontWeight:700,color:'var(--text3)',textTransform:'uppercase',letterSpacing:'0.06em',marginBottom:6}}>
+                    Уже закрытые периоды <span style={{fontWeight:400,textTransform:'none'}}>(нажмите чтобы переоткрыть)</span>
+                  </div>
                   <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
                     {closedPeriods.map(p=>(
-                      <span key={`${p.year}-${p.month}`}
-                        style={{fontSize:11,padding:'3px 10px',borderRadius:20,background:'var(--surface2)',border:'1px solid var(--border)',color:'var(--text3)'}}>
-                        📦 {p.period_label} ({p.count})
-                      </span>
+                      <button key={`${p.year}-${p.month}`}
+                        onClick={()=>handleReopenPeriod(p.year,p.month)}
+                        title={`Переоткрыть ${p.period_label}`}
+                        style={{fontSize:11,padding:'3px 10px',borderRadius:20,background:'var(--surface2)',border:'1px solid var(--border)',color:'var(--text3)',cursor:'pointer',fontFamily:'inherit',transition:'all 0.12s'}}
+                        onMouseEnter={e=>{e.currentTarget.style.borderColor='var(--warn)';e.currentTarget.style.color='var(--warn)'}}
+                        onMouseLeave={e=>{e.currentTarget.style.borderColor='var(--border)';e.currentTarget.style.color='var(--text3)'}}>
+                        📦 {p.period_label} ({p.count}) ↩
+                      </button>
                     ))}
                   </div>
                 </div>

@@ -69,8 +69,12 @@ export const posting = {
     api.get(`/api/posting/period-preview`, { params: { company_id: companyId, year, month } }),
   closePeriod:    (companyId, year, month) =>
     api.post(`/api/posting/close-period?company_id=${companyId}`, { year, month }),
+  reopenPeriod:   (companyId, year, month) =>
+    api.post(`/api/posting/reopen-period?company_id=${companyId}`, { year, month }),
   closedPeriods:  (companyId) =>
     api.get(`/api/posting/closed-periods`, { params: { company_id: companyId } }),
+  journalStats:   (companyId, params) =>
+    api.get(`/api/posting/journal-stats`, { params: { company_id: companyId, ...params } }),
 }
 
 export const documents = {

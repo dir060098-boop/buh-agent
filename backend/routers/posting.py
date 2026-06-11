@@ -396,6 +396,103 @@ def close_period(
     }
 
 
+# ── Переоткрыть период ────────────────────────────────────────────────────
+@router.post("/reopen-period")
+def reopen_period(
+    company_id: int,
+    data: ClosePeriodRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Снимает архивацию с проводок выбранного месяца (отмена закрытия)."""
+    company = db.query(Company).filter(
+        Company.id == company_id, Company.owner_id == current_user.id
+    ).first()
+    if not company:
+        raise HTTPException(403, "Нет доступа")
+
+    from_date = date(data.year, data.month, 1)
+    to_date   = date(data.year + 1, 1, 1) if data.month == 12 else date(data.year, data.month + 1, 1)
+
+    entries = db.query(JournalEntry).filter(
+        JournalEntry.company_id  == company_id,
+        JournalEntry.entry_date  >= from_date,
+        JournalEntry.entry_date  <  to_date,
+        JournalEntry.is_archived == True,
+    ).all()
+
+    for e in entries:
+        e.is_archived = False
+        e.archived_at = None
+    db.commit()
+
+    MONTHS_RU = ["","Январь","Февраль","Март","Апрель","Май","Июнь",
+                 "Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"]
+    return {
+        "reopened": len(entries),
+        "period_label": f"{MONTHS_RU[data.month]} {data.year}",
+    }
+
+
+# ── Серверная статистика журнала (вся выборка, не страница) ──────────────
+@router.get("/journal-stats")
+def journal_stats(
+    company_id: int,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    include_archived: bool = False,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Итоги по всему журналу с учётом фильтров (не зависят от пагинации)."""
+    company = db.query(Company).filter(
+        Company.id == company_id, Company.owner_id == current_user.id
+    ).first()
+    if not company:
+        raise HTTPException(403, "Нет доступа")
+
+    from sqlalchemy import func as sa_func
+    q = db.query(JournalEntry).filter(JournalEntry.company_id == company_id)
+    if not include_archived:
+        q = q.filter(JournalEntry.is_archived == False)
+    if date_from:
+        q = q.filter(JournalEntry.entry_date >= date_from)
+    if date_to:
+        q = q.filter(JournalEntry.entry_date <= date_to)
+
+    total        = q.count()
+    posted       = q.filter(JournalEntry.status == "posted").count()
+    # Пересоздаём базовый запрос т.к. q уже отфильтрован по posted
+    q2 = db.query(JournalEntry).filter(JournalEntry.company_id == company_id)
+    if not include_archived:
+        q2 = q2.filter(JournalEntry.is_archived == False)
+    if date_from:
+        q2 = q2.filter(JournalEntry.entry_date >= date_from)
+    if date_to:
+        q2 = q2.filter(JournalEntry.entry_date <= date_to)
+    needs_review = q2.filter(JournalEntry.status == "needs_review").count()
+
+    sum_q = db.query(sa_func.coalesce(sa_func.sum(JournalEntry.amount), 0)).filter(
+        JournalEntry.company_id == company_id,
+        JournalEntry.status     == "posted",
+        JournalEntry.currency   == "KGS",
+    )
+    if not include_archived:
+        sum_q = sum_q.filter(JournalEntry.is_archived == False)
+    if date_from:
+        sum_q = sum_q.filter(JournalEntry.entry_date >= date_from)
+    if date_to:
+        sum_q = sum_q.filter(JournalEntry.entry_date <= date_to)
+    total_kgs = float(sum_q.scalar() or 0)
+
+    return {
+        "total":        total,
+        "posted":       posted,
+        "needs_review": needs_review,
+        "total_kgs":    round(total_kgs, 2),
+    }
+
+
 # ── Список закрытых периодов компании ────────────────────────────────────
 @router.get("/closed-periods")
 def get_closed_periods(
