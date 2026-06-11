@@ -16,7 +16,7 @@ from typing import Optional
 from datetime import datetime
 import io
 from database import get_db
-from routers.auth import get_current_user
+from routers.auth import get_current_user, require_company
 import models
 
 router = APIRouter()
@@ -71,7 +71,7 @@ def list_esf(
     limit:  int = 100,
     offset: int = 0,
     db:   Session = Depends(get_db),
-    user  = Depends(get_current_user),
+    company = Depends(require_company),
 ):
     q = db.query(models.ESF).filter(models.ESF.company_id == company_id)
     if direction:
@@ -94,7 +94,7 @@ def get_book(
     date_from:  Optional[str] = None,
     date_to:    Optional[str] = None,
     db:   Session = Depends(get_db),
-    user  = Depends(get_current_user),
+    company = Depends(require_company),
 ):
     q = db.query(models.ESF).filter(
         models.ESF.company_id == company_id,
@@ -126,7 +126,7 @@ def export_book(
     date_from:  Optional[str] = None,
     date_to:    Optional[str] = None,
     db:   Session = Depends(get_db),
-    user  = Depends(get_current_user),
+    company = Depends(require_company),
 ):
     """Выгружает Книгу покупок или продаж в формате Excel (.xlsx)."""
     from openpyxl import Workbook
@@ -283,7 +283,7 @@ def create_esf(
     company_id: int,
     data: ESFCreate,
     db:   Session = Depends(get_db),
-    user  = Depends(get_current_user),
+    company = Depends(require_company),
 ):
     esf_date = (datetime.strptime(data.esf_date, "%Y-%m-%d")
                 if data.esf_date else datetime.utcnow())
@@ -320,7 +320,7 @@ def delete_esf(
     company_id: int,
     esf_id: int,
     db:   Session = Depends(get_db),
-    user  = Depends(get_current_user),
+    company = Depends(require_company),
 ):
     esf = db.query(models.ESF).filter(
         models.ESF.id         == esf_id,
@@ -339,7 +339,7 @@ def accept_esf(
     company_id: int,
     esf_id: int,
     db:   Session = Depends(get_db),
-    user  = Depends(get_current_user),
+    company = Depends(require_company),
 ):
     esf = db.query(models.ESF).filter(
         models.ESF.id         == esf_id,
@@ -360,7 +360,7 @@ def unaccept_esf(
     company_id: int,
     esf_id: int,
     db:   Session = Depends(get_db),
-    user  = Depends(get_current_user),
+    company = Depends(require_company),
 ):
     esf = db.query(models.ESF).filter(
         models.ESF.id         == esf_id,
@@ -382,7 +382,7 @@ def link_transaction(
     esf_id: int,
     tx_id: int,
     db:   Session = Depends(get_db),
-    user  = Depends(get_current_user),
+    company = Depends(require_company),
 ):
     esf = db.query(models.ESF).filter(
         models.ESF.id         == esf_id,
@@ -403,7 +403,7 @@ def unlink_transaction(
     company_id: int,
     esf_id: int,
     db:   Session = Depends(get_db),
-    user  = Depends(get_current_user),
+    company = Depends(require_company),
 ):
     esf = db.query(models.ESF).filter(
         models.ESF.id         == esf_id,
@@ -425,7 +425,7 @@ def link_document(
     esf_id: int,
     doc_id: int,
     db:   Session = Depends(get_db),
-    user  = Depends(get_current_user),
+    company = Depends(require_company),
 ):
     esf = db.query(models.ESF).filter(
         models.ESF.id         == esf_id,
@@ -445,7 +445,7 @@ def unlink_document(
     company_id: int,
     esf_id: int,
     db:   Session = Depends(get_db),
-    user  = Depends(get_current_user),
+    company = Depends(require_company),
 ):
     esf = db.query(models.ESF).filter(
         models.ESF.id         == esf_id,

@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime, timedelta
 from database import get_db, settings
-from routers.auth import get_current_user
+from routers.auth import get_current_user, require_company
 import models, anthropic, json
 
 router = APIRouter()
@@ -525,7 +525,7 @@ CHAT_SYSTEM = """\
 def get_chat_history(
     company_id: int,
     db:   Session = Depends(get_db),
-    user  = Depends(get_current_user),
+    company = Depends(require_company),
 ):
     """Последние 60 сообщений чата."""
     msgs = (
@@ -543,7 +543,7 @@ def send_chat_message(
     company_id: int,
     data: ChatRequest,
     db:   Session = Depends(get_db),
-    user  = Depends(get_current_user),
+    company = Depends(require_company),
 ):
     """Отправить сообщение AI-бухгалтеру. Использует tool use для запроса БД."""
     if not data.message.strip():
@@ -629,7 +629,7 @@ def send_chat_message(
 def clear_chat_history(
     company_id: int,
     db:   Session = Depends(get_db),
-    user  = Depends(get_current_user),
+    company = Depends(require_company),
 ):
     db.query(models.ChatMessage).filter(
         models.ChatMessage.company_id == company_id
@@ -708,7 +708,7 @@ def generate_client_message(
     company_id: int,
     data: ClientMsgRequest,
     db:   Session = Depends(get_db),
-    user  = Depends(get_current_user),
+    company = Depends(require_company),
 ):
     msg_type  = data.message_type if data.message_type in CLIENT_PROMPTS else "status"
     context   = get_company_context(company_id, db)
@@ -733,7 +733,7 @@ def generate_client_message(
 def get_client_messages(
     company_id: int,
     db:   Session = Depends(get_db),
-    user  = Depends(get_current_user),
+    company = Depends(require_company),
 ):
     msgs = (
         db.query(models.ClientMessage)
@@ -747,7 +747,7 @@ def get_client_messages(
 
 # ── Legacy ─────────────────────────────────────────────────────────────────
 @router.get("/{company_id}/reminders")
-def get_reminders(company_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+def get_reminders(company_id: int, db: Session = Depends(get_db), company = Depends(require_company)):
     reminders = []
     pending = db.query(models.Document).filter(models.Document.company_id == company_id, models.Document.status == "pending").count()
     if pending:

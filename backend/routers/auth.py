@@ -38,6 +38,36 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
         raise HTTPException(status_code=401, detail="User not found")
     return user
 
+
+def verify_company_access(company_id: int, user, db: Session) -> "models.Company":
+    """Проверяет что компания принадлежит пользователю. 404 если нет доступа.
+
+    Использование в эндпоинте:
+        company = verify_company_access(company_id, user, db)
+    """
+    company = db.query(models.Company).filter(
+        models.Company.id == company_id,
+        models.Company.owner_id == user.id,
+    ).first()
+    if not company:
+        raise HTTPException(status_code=404, detail="Компания не найдена")
+    return company
+
+
+def require_company(
+    company_id: int,
+    db: Session = Depends(get_db),
+    user = Depends(get_current_user),
+):
+    """FastAPI-зависимость: company_id берётся из path, проверяется владелец.
+
+    Использование:
+        @router.get("/{company_id}/something")
+        def endpoint(company_id: int, company = Depends(require_company)):
+            ...
+    """
+    return verify_company_access(company_id, user, db)
+
 @router.post("/register")
 def register(data: UserCreate, db: Session = Depends(get_db)):
     if db.query(models.User).filter(models.User.email == data.email).first():

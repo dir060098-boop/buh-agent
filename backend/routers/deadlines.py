@@ -347,7 +347,12 @@ def mark_done(
     user = Depends(get_current_user)
 ):
     """Отметить дедлайн как сданный — закрывает напоминание."""
-    dl = db.query(models.Deadline).filter(models.Deadline.id == deadline_id).first()
+    dl = (
+        db.query(models.Deadline)
+        .join(models.Company, models.Deadline.company_id == models.Company.id)
+        .filter(models.Deadline.id == deadline_id, models.Company.owner_id == user.id)
+        .first()
+    )
     if not dl:
         raise HTTPException(404, "Дедлайн не найден")
     dl.is_done  = True
@@ -365,7 +370,12 @@ def reopen_deadline(
     user = Depends(get_current_user)
 ):
     """Переоткрыть закрытый дедлайн."""
-    dl = db.query(models.Deadline).filter(models.Deadline.id == deadline_id).first()
+    dl = (
+        db.query(models.Deadline)
+        .join(models.Company, models.Deadline.company_id == models.Company.id)
+        .filter(models.Deadline.id == deadline_id, models.Company.owner_id == user.id)
+        .first()
+    )
     if not dl:
         raise HTTPException(404, "Дедлайн не найден")
     dl.is_done = False; dl.done_at = None; dl.done_by = None
@@ -379,7 +389,12 @@ def delete_deadline(
     db: Session = Depends(get_db),
     user = Depends(get_current_user)
 ):
-    dl = db.query(models.Deadline).filter(models.Deadline.id == deadline_id).first()
+    dl = (
+        db.query(models.Deadline)
+        .join(models.Company, models.Deadline.company_id == models.Company.id)
+        .filter(models.Deadline.id == deadline_id, models.Company.owner_id == user.id)
+        .first()
+    )
     if not dl:
         raise HTTPException(404, "Дедлайн не найден")
     db.delete(dl); db.commit()

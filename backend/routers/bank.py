@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime, date
 from database import get_db, settings
-from routers.auth import get_current_user
+from routers.auth import get_current_user, require_company
 import models
 import io
 import re
@@ -100,6 +100,33 @@ def tx_to_dict(tx) -> dict:
         "journal_entry_id": tx.journal_entry_id,
         "created_at": tx.created_at.isoformat() if tx.created_at else None,
     }
+
+
+def _require_account(account_id: int, user, db: Session) -> models.BankAccount:
+    """Возвращает счёт если он принадлежит компании пользователя, иначе 404."""
+    acc = (
+        db.query(models.BankAccount)
+        .join(models.Company, models.BankAccount.company_id == models.Company.id)
+        .filter(models.BankAccount.id == account_id, models.Company.owner_id == user.id)
+        .first()
+    )
+    if not acc:
+        raise HTTPException(404, "Счёт не найден")
+    return acc
+
+
+def _require_tx(tx_id: int, user, db: Session) -> models.BankTransaction:
+    """Возвращает транзакцию если её счёт принадлежит компании пользователя."""
+    tx = (
+        db.query(models.BankTransaction)
+        .join(models.BankAccount, models.BankTransaction.account_id == models.BankAccount.id)
+        .join(models.Company, models.BankAccount.company_id == models.Company.id)
+        .filter(models.BankTransaction.id == tx_id, models.Company.owner_id == user.id)
+        .first()
+    )
+    if not tx:
+        raise HTTPException(404, "Операция не найдена")
+    return tx
 
 
 def _get_account_name(code: str, db: Session) -> str:
@@ -271,7 +298,7 @@ def _auto_post(tx: models.BankTransaction, acc: models.BankAccount,
 
 @router.get("/{company_id}/accounts")
 def list_accounts(company_id: int, db: Session = Depends(get_db),
-                  user=Depends(get_current_user)):
+                  company = Depends(require_company)):
     accs = db.query(models.BankAccount).filter(
         models.BankAccount.company_id == company_id
     ).all()
@@ -280,7 +307,7 @@ def list_accounts(company_id: int, db: Session = Depends(get_db),
 
 @router.post("/{company_id}/accounts")
 def create_account(company_id: int, data: AccountCreate,
-                   db: Session = Depends(get_db), user=Depends(get_current_user)):
+                   db: Session = Depends(get_db), company = Depends(require_company)):
     acc = models.BankAccount(
         company_id=company_id,
         bank_name=data.bank_name,
@@ -297,10 +324,8 @@ def create_account(company_id: int, data: AccountCreate,
 
 @router.delete("/accounts/{account_id}")
 def delete_account(account_id: int, db: Session = Depends(get_db),
-                   user=Depends(get_current_user)):
-    acc = db.query(models.BankAccount).filter(models.BankAccount.id == account_id).first()
-    if not acc:
-        raise HTTPException(404, "Счёт не найден")
+                   user = Depends(get_current_user)):
+    acc = _require_account(account_id, user, db)
     db.delete(acc)
     db.commit()
     return {"ok": True}
@@ -321,7 +346,7 @@ def list_transactions(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    company = Depends(require_company),
 ):
     accs = db.query(models.BankAccount).filter(
         models.BankAccount.company_id == company_id
@@ -389,7 +414,7 @@ def add_transaction(
     company_id: int,
     data: TransactionCreate,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    company = Depends(require_company),
 ):
     acc = db.query(models.BankAccount).filter(
         models.BankAccount.id == data.account_id,
@@ -426,10 +451,8 @@ def add_transaction(
 
 @router.delete("/transactions/{tx_id}")
 def delete_transaction(tx_id: int, db: Session = Depends(get_db),
-                       user=Depends(get_current_user)):
-    tx = db.query(models.BankTransaction).filter(models.BankTransaction.id == tx_id).first()
-    if not tx:
-        raise HTTPException(404, "Операция не найдена")
+                       user = Depends(get_current_user)):
+    tx = _require_tx(tx_id, user, db)
     db.delete(tx)
     db.commit()
     return {"ok": True}
@@ -440,12 +463,10 @@ def update_transaction(
     tx_id: int,
     data: TransactionUpdate,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    user = Depends(get_current_user),
 ):
     """Редактировать поля транзакции."""
-    tx = db.query(models.BankTransaction).filter(models.BankTransaction.id == tx_id).first()
-    if not tx:
-        raise HTTPException(404, "Операция не найдена")
+    tx = _require_tx(tx_id, user, db)
     if data.date is not None:
         tx.date = datetime.strptime(data.date, "%Y-%m-%d")
     if data.amount is not None:
@@ -466,7 +487,7 @@ def auto_post_all(
     company_id: int,
     account_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    company = Depends(require_company),
 ):
     """Авторазноска всех unmatched транзакций без проводки."""
     accs = db.query(models.BankAccount).filter(
@@ -507,11 +528,9 @@ def auto_post_all(
 @router.patch("/transactions/{tx_id}/match")
 def match_transaction(tx_id: int, doc_id: Optional[int] = None,
                       esf_id: Optional[int] = None,
-                      db: Session = Depends(get_db), user=Depends(get_current_user)):
+                      db: Session = Depends(get_db), user = Depends(get_current_user)):
     """Привязать транзакцию к документу или ЭСФ."""
-    tx = db.query(models.BankTransaction).filter(models.BankTransaction.id == tx_id).first()
-    if not tx:
-        raise HTTPException(404, "Операция не найдена")
+    tx = _require_tx(tx_id, user, db)
     if doc_id:
         tx.linked_document_id = doc_id
     if esf_id:
@@ -607,12 +626,12 @@ def get_match_candidates(
     tx_id: int,
     company_id: int = Query(...),
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    user = Depends(get_current_user),
 ):
     """Топ-5 кандидатов для привязки транзакции (документы + ЭСФ)."""
-    tx = db.query(models.BankTransaction).filter(models.BankTransaction.id == tx_id).first()
-    if not tx:
-        raise HTTPException(404, "Операция не найдена")
+    from routers.auth import verify_company_access
+    verify_company_access(company_id, user, db)
+    tx = _require_tx(tx_id, user, db)
 
     candidates = []
 
@@ -1121,7 +1140,7 @@ def clear_account_transactions(
     company_id: int,
     account_id: int,
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    company = Depends(require_company),
 ):
     """Удалить все транзакции конкретного банковского счёта."""
     acc = db.query(models.BankAccount).filter(
@@ -1143,7 +1162,7 @@ async def import_statement(
     account_id: int = Form(...),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    company = Depends(require_company),
 ):
     """Импорт банковской выписки (Оптима XLSX или Демир PDF)."""
     acc = db.query(models.BankAccount).filter(

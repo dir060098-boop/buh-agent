@@ -21,7 +21,7 @@ from typing import Optional
 from datetime import datetime, date
 import io
 from database import get_db
-from routers.auth import get_current_user
+from routers.auth import get_current_user, require_company
 import models
 from openpyxl import Workbook
 from openpyxl.styles import Font, Alignment, PatternFill
@@ -220,7 +220,7 @@ def _post_entry(company_id: int, debit: str, credit: str, amount: float,
 @router.get("/{company_id}/employees")
 def list_employees(company_id: int,
                    db: Session = Depends(get_db),
-                   user = Depends(get_current_user)):
+                   company = Depends(require_company)):
     emps = db.query(models.Employee).filter(
         models.Employee.company_id == company_id
     ).order_by(models.Employee.is_active.desc(),
@@ -231,7 +231,7 @@ def list_employees(company_id: int,
 @router.post("/{company_id}/employees")
 def add_employee(company_id: int, data: EmployeeCreate,
                  db: Session = Depends(get_db),
-                 user = Depends(get_current_user)):
+                 company = Depends(require_company)):
     hire_date = datetime.strptime(data.hire_date, "%Y-%m-%d")
     emp = models.Employee(
         company_id = company_id,
@@ -253,7 +253,7 @@ def add_employee(company_id: int, data: EmployeeCreate,
 @router.patch("/{company_id}/employees/{emp_id}/fire")
 def fire_employee(company_id: int, emp_id: int,
                   db: Session = Depends(get_db),
-                  user = Depends(get_current_user)):
+                  company = Depends(require_company)):
     emp = db.query(models.Employee).filter(
         models.Employee.id == emp_id,
         models.Employee.company_id == company_id,
@@ -269,7 +269,7 @@ def fire_employee(company_id: int, emp_id: int,
 @router.delete("/{company_id}/employees/{emp_id}")
 def delete_employee(company_id: int, emp_id: int,
                     db: Session = Depends(get_db),
-                    user = Depends(get_current_user)):
+                    company = Depends(require_company)):
     emp = db.query(models.Employee).filter(
         models.Employee.id == emp_id,
         models.Employee.company_id == company_id,
@@ -285,7 +285,7 @@ def delete_employee(company_id: int, emp_id: int,
 @router.get("/{company_id}/payroll")
 def preview_payroll(company_id: int,
                     db: Session = Depends(get_db),
-                    user = Depends(get_current_user)):
+                    company = Depends(require_company)):
     """Предварительный расчёт — без сохранения."""
     emps = db.query(models.Employee).filter(
         models.Employee.company_id == company_id,
@@ -316,7 +316,7 @@ def preview_payroll(company_id: int,
 @router.get("/{company_id}/payroll/history")
 def payroll_history(company_id: int,
                     db: Session = Depends(get_db),
-                    user = Depends(get_current_user)):
+                    company = Depends(require_company)):
     runs = db.query(models.PayrollRun).filter(
         models.PayrollRun.company_id == company_id
     ).order_by(models.PayrollRun.year.desc(),
@@ -327,7 +327,7 @@ def payroll_history(company_id: int,
 @router.get("/{company_id}/payroll/run/{run_id}")
 def get_run(company_id: int, run_id: int,
             db: Session = Depends(get_db),
-            user = Depends(get_current_user)):
+            company = Depends(require_company)):
     run = db.query(models.PayrollRun).filter(
         models.PayrollRun.id         == run_id,
         models.PayrollRun.company_id == company_id,
@@ -341,7 +341,7 @@ def get_run(company_id: int, run_id: int,
 @router.post("/{company_id}/payroll/run")
 def run_payroll(company_id: int, data: RunPayrollRequest,
                 db: Session = Depends(get_db),
-                user = Depends(get_current_user)):
+                company = Depends(require_company)):
     """Рассчитать, сохранить и создать проводки в журнале."""
     if not (1 <= data.month <= 12):
         raise HTTPException(400, "Неверный месяц")
@@ -442,7 +442,7 @@ def run_payroll(company_id: int, data: RunPayrollRequest,
 @router.delete("/{company_id}/payroll/run/{run_id}")
 def delete_run(company_id: int, run_id: int,
                db: Session = Depends(get_db),
-               user = Depends(get_current_user)):
+               company = Depends(require_company)):
     run = db.query(models.PayrollRun).filter(
         models.PayrollRun.id         == run_id,
         models.PayrollRun.company_id == company_id,
@@ -458,7 +458,7 @@ def delete_run(company_id: int, run_id: int,
 @router.post("/{company_id}/payroll/run/{run_id}/advance")
 def pay_advance(company_id: int, run_id: int, data: AdvanceRequest,
                 db: Session = Depends(get_db),
-                user = Depends(get_current_user)):
+                company = Depends(require_company)):
     """
     Зафиксировать ранее выплаченный аванс — Дт 3520 / Кт 1210 (1110).
     Уменьшает итоговую сумму при выплате основной зарплаты.
@@ -491,7 +491,7 @@ def pay_advance(company_id: int, run_id: int, data: AdvanceRequest,
 @router.patch("/{company_id}/employees/{emp_id}")
 def update_employee(company_id: int, emp_id: int, data: EmployeeUpdate,
                     db: Session = Depends(get_db),
-                    user = Depends(get_current_user)):
+                    company = Depends(require_company)):
     emp = db.query(models.Employee).filter(
         models.Employee.id         == emp_id,
         models.Employee.company_id == company_id,
@@ -512,7 +512,7 @@ def update_employee(company_id: int, emp_id: int, data: EmployeeUpdate,
 @router.post("/{company_id}/payroll/run/{run_id}/pay")
 def pay_salary(company_id: int, run_id: int, data: PayRequest,
                db: Session = Depends(get_db),
-               user = Depends(get_current_user)):
+               company = Depends(require_company)):
     """
     Выплатить зарплату — создаёт проводку Дт 3520 / Кт 1210 (банк) или Кт 1110 (касса).
     """
@@ -548,7 +548,7 @@ def pay_salary(company_id: int, run_id: int, data: PayRequest,
 @router.post("/{company_id}/payroll/run/{run_id}/pay-taxes")
 def pay_taxes(company_id: int, run_id: int, data: PayRequest,
               db: Session = Depends(get_db),
-              user = Depends(get_current_user)):
+              company = Depends(require_company)):
     """
     Оплата налогов и соцфонда в бюджет:
       Дт 3410 / Кт 1210 — подоходный налог
@@ -606,7 +606,7 @@ def _leave_dict(leave: models.EmployeeLeave, emp_name: str = "") -> dict:
 @router.get("/{company_id}/leaves")
 def list_leaves(company_id: int,
                 db:   Session = Depends(get_db),
-                user  = Depends(get_current_user)):
+                company = Depends(require_company)):
     leaves = db.query(models.EmployeeLeave).filter(
         models.EmployeeLeave.company_id == company_id
     ).order_by(models.EmployeeLeave.start_date.desc()).all()
@@ -623,7 +623,7 @@ def list_leaves(company_id: int,
 @router.post("/{company_id}/leaves")
 def create_leave(company_id: int, data: LeaveCreate,
                  db:   Session = Depends(get_db),
-                 user  = Depends(get_current_user)):
+                 company = Depends(require_company)):
     emp = db.query(models.Employee).filter(
         models.Employee.id         == data.employee_id,
         models.Employee.company_id == company_id,
@@ -695,7 +695,7 @@ def create_leave(company_id: int, data: LeaveCreate,
 @router.delete("/{company_id}/leaves/{leave_id}")
 def delete_leave(company_id: int, leave_id: int,
                  db:   Session = Depends(get_db),
-                 user  = Depends(get_current_user)):
+                 company = Depends(require_company)):
     leave = db.query(models.EmployeeLeave).filter(
         models.EmployeeLeave.id         == leave_id,
         models.EmployeeLeave.company_id == company_id,
@@ -711,7 +711,7 @@ def delete_leave(company_id: int, leave_id: int,
 @router.get("/{company_id}/payroll/run/{run_id}/export")
 def export_run_excel(company_id: int, run_id: int,
                      db:   Session = Depends(get_db),
-                     user  = Depends(get_current_user)):
+                     company = Depends(require_company)):
     run = db.query(models.PayrollRun).filter(
         models.PayrollRun.id         == run_id,
         models.PayrollRun.company_id == company_id,

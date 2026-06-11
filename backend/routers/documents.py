@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from database import get_db
-from routers.auth import get_current_user
+from routers.auth import get_current_user, require_company
 from typing import Optional
 import models
 
@@ -55,7 +55,7 @@ def list_documents(
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: Session = Depends(get_db),
-    user=Depends(get_current_user),
+    company = Depends(require_company),
 ):
     q = db.query(models.Document).filter(models.Document.company_id == company_id)
 
@@ -97,9 +97,23 @@ def get_document(document_id: int, db: Session = Depends(get_db), user=Depends(g
 
 @router.delete("/{doc_id}")
 def delete_document(doc_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    doc = db.query(models.Document).filter(models.Document.id == doc_id).first()
+    doc = (
+        db.query(models.Document)
+        .join(models.Company, models.Document.company_id == models.Company.id)
+        .filter(models.Document.id == doc_id, models.Company.owner_id == user.id)
+        .first()
+    )
     if not doc:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise HTTPException(status_code=404, detail="Документ не найден")
+
+    # Каскад: очищаем ссылки на документ в ЭСФ и банковских транзакциях
+    db.query(models.ESF).filter(
+        models.ESF.linked_document_id == doc_id
+    ).update({"linked_document_id": None})
+    db.query(models.BankTransaction).filter(
+        models.BankTransaction.linked_document_id == doc_id
+    ).update({"linked_document_id": None, "status": "unmatched"})
+
     db.delete(doc)
     db.commit()
     return {"ok": True}
