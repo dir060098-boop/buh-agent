@@ -79,6 +79,22 @@ async def startup():
     print("✅ Таблицы БД созданы/проверены")
     _run_migrations()
     _seed_chart_on_startup()
+    _refresh_rates_on_startup()
+
+
+def _refresh_rates_on_startup():
+    """Подтягивает сегодняшние курсы НБКР (не критично при сбое)."""
+    try:
+        from database import SessionLocal
+        from rates import refresh_today_rates
+        db = SessionLocal()
+        try:
+            result = refresh_today_rates(db)
+            print(f"✅ Курсы НБКР на {result['date']}: {result['rates']}")
+        finally:
+            db.close()
+    except Exception as e:
+        print(f"⚠️  Курсы НБКР не загружены: {e}")
 
 def _run_migrations():
     """Добавляет новые колонки в существующие таблицы."""
@@ -205,6 +221,15 @@ def _run_migrations():
             content TEXT NOT NULL,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         )""",
+        # exchange_rates — курсы НБКР
+        """CREATE TABLE IF NOT EXISTS exchange_rates (
+            id SERIAL PRIMARY KEY,
+            rate_date DATE NOT NULL,
+            currency VARCHAR(3) NOT NULL,
+            rate FLOAT NOT NULL,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        )""",
+        "CREATE INDEX IF NOT EXISTS ix_exchange_rates_lookup ON exchange_rates (currency, rate_date DESC)",
     ]
     try:
         with engine.connect() as conn:

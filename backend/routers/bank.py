@@ -270,6 +270,16 @@ def _auto_post(tx: models.BankTransaction, acc: models.BankAccount,
     from datetime import date as _date
     entry_date = tx.date.date() if tx.date else _date.today()
 
+    # Валютная транзакция → пересчёт в KGS по курсу НБКР на дату операции
+    tx_currency = tx.currency or "KGS"
+    amount_kgs  = None
+    exchange_rate = None
+    if tx_currency != "KGS":
+        from rates import get_rate
+        exchange_rate = get_rate(db, tx_currency, entry_date)
+        if exchange_rate:
+            amount_kgs = round(tx.amount * exchange_rate, 2)
+
     try:
         entry = models.JournalEntry(
             company_id         = company_id,
@@ -280,7 +290,9 @@ def _auto_post(tx: models.BankTransaction, acc: models.BankAccount,
             credit_account     = credit,
             credit_account_name= credit_name,
             amount             = tx.amount,
-            currency           = tx.currency or "KGS",
+            currency           = tx_currency,
+            amount_kgs         = amount_kgs,
+            exchange_rate      = exchange_rate,
             description        = description[:255],
             status             = "needs_review" if confidence < 75 else "posted",
             ai_confidence      = confidence,
@@ -292,6 +304,33 @@ def _auto_post(tx: models.BankTransaction, acc: models.BankAccount,
     except Exception as e:
         print(f"[BANK] auto_post error: {e}")
         return None
+
+
+# ── Курсы валют НБКР ───────────────────────────────────────────────────────
+
+@router.get("/rates")
+def get_rates(
+    currency: Optional[str] = Query(None),
+    on_date:  Optional[str] = Query(None, description="YYYY-MM-DD"),
+    db: Session = Depends(get_db),
+    user = Depends(get_current_user),
+):
+    """Курс валюты к сому на дату (или все текущие курсы НБКР)."""
+    from rates import get_rate, refresh_today_rates
+    from datetime import date as _date
+
+    if currency:
+        d = _date.fromisoformat(on_date) if on_date else _date.today()
+        rate = get_rate(db, currency.upper(), d)
+        if rate is None:
+            raise HTTPException(404, f"Курс {currency} не найден")
+        return {"currency": currency.upper(), "date": str(d), "rate": rate}
+
+    # Все текущие курсы (с обновлением из НБКР)
+    try:
+        return refresh_today_rates(db)
+    except Exception as e:
+        raise HTTPException(502, f"НБКР недоступен: {e}")
 
 
 # ── Счета ──────────────────────────────────────────────────────────────────

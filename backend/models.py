@@ -299,6 +299,15 @@ class ChatMessage(Base):
     content    = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+class ExchangeRate(Base):
+    """Курсы валют НБКР к сому, накапливаются по датам."""
+    __tablename__ = "exchange_rates"
+    id        = Column(Integer, primary_key=True)
+    rate_date = Column(Date, nullable=False)
+    currency  = Column(String(3), nullable=False)   # USD, EUR, RUB, ...
+    rate      = Column(Float, nullable=False)        # сомов за 1 единицу
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 class ClientMessage(Base):
     """Сгенерированные письма/сообщения для клиента-директора."""
     __tablename__ = "client_messages"
