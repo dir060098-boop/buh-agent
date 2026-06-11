@@ -908,6 +908,11 @@ export default function Bank() {
                     <div style={{ color: 'var(--text2)', lineHeight: 1.6 }}>
                       Загружено: <b>{importResult.imported}</b> операций
                       {importResult.skipped > 0 && <> · Пропущено (дубли): <b>{importResult.skipped}</b></>}
+                      {importResult.matched_auto > 0 && (
+                        <div style={{ marginTop: 4, color: 'var(--success)', fontWeight: 600 }}>
+                          🔗 Автоматически сверено с документами: <b>{importResult.matched_auto}</b>
+                        </div>
+                      )}
                     </div>
                   </div>
                 )

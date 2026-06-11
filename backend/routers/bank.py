@@ -660,6 +660,78 @@ def _score_candidate(tx: models.BankTransaction, amount: float, currency: str,
     return max(0, score)
 
 
+def _auto_match_tx(tx: models.BankTransaction, company_id: int, db: Session) -> bool:
+    """Автоматически привязывает транзакцию к документу/ЭСФ при score >= 80.
+
+    Возвращает True если привязка произошла. Используется после импорта выписки.
+    """
+    best = None  # (score, "document"|"esf", obj)
+
+    # Документы (не привязанные к другим транзакциям)
+    linked_doc_ids = {
+        r[0] for r in db.query(models.BankTransaction.linked_document_id)
+        .filter(models.BankTransaction.linked_document_id.isnot(None),
+                models.BankTransaction.id != tx.id).all()
+    }
+    docs = db.query(models.Document).filter(
+        models.Document.company_id == company_id,
+        models.Document.amount.isnot(None),
+    ).all()
+    for doc in docs:
+        score = _score_candidate(
+            tx=tx,
+            amount=doc.amount or 0,
+            currency=doc.currency or "KGS",
+            cp_name=doc.counterparty or "",
+            cp_inn=doc.counterparty_inn or "",
+            ref_number=doc.doc_number or "",
+            ref_date=doc.doc_date,
+            already_linked=doc.id in linked_doc_ids,
+        )
+        if score >= 80 and (best is None or score > best[0]):
+            best = (score, "document", doc)
+
+    # ЭСФ (не привязанные)
+    linked_esf_ids = {
+        r[0] for r in db.query(models.BankTransaction.linked_esf_id)
+        .filter(models.BankTransaction.linked_esf_id.isnot(None),
+                models.BankTransaction.id != tx.id).all()
+    }
+    esf_list = db.query(models.ESF).filter(
+        models.ESF.company_id == company_id,
+    ).all()
+    for esf in esf_list:
+        if tx.direction == "out":
+            cp_name, cp_inn = esf.supplier_name or "", esf.supplier_inn or ""
+        else:
+            cp_name, cp_inn = esf.buyer_name or "", esf.buyer_inn or ""
+        score = _score_candidate(
+            tx=tx,
+            amount=esf.amount or 0,
+            currency="KGS",
+            cp_name=cp_name,
+            cp_inn=cp_inn,
+            ref_number=esf.esf_number or "",
+            ref_date=esf.esf_date,
+            already_linked=esf.id in linked_esf_ids,
+        )
+        if score >= 80 and (best is None or score > best[0]):
+            best = (score, "esf", esf)
+
+    if best is None:
+        return False
+
+    _, kind, obj = best
+    if kind == "document":
+        tx.linked_document_id = obj.id
+    else:
+        tx.linked_esf_id = obj.id
+        obj.bank_transaction_id = tx.id
+        obj.linked_payment = True
+    tx.status = "matched"
+    return True
+
+
 @router.get("/transactions/{tx_id}/match-candidates")
 def get_match_candidates(
     tx_id: int,
@@ -1239,6 +1311,7 @@ async def import_statement(
 
     imported = 0
     skipped  = 0
+    new_txs  = []
 
     for row in tx_rows:
         if _tx_exists(account_id, row["date"], row["amount"],
@@ -1261,12 +1334,27 @@ async def import_statement(
             status          = "unmatched",
         )
         db.add(tx)
+        new_txs.append(tx)
         imported += 1
 
     db.commit()
+
+    # ── Автосверка: привязываем новые транзакции к документам/ЭСФ ─────────
+    matched_auto = 0
+    for tx in new_txs:
+        try:
+            if _auto_match_tx(tx, company_id, db):
+                matched_auto += 1
+        except Exception as e:
+            print(f"[BANK] auto-match error tx={tx.id}: {e}")
+    if matched_auto:
+        db.commit()
+        print(f"[BANK] Auto-matched {matched_auto}/{imported} imported transactions")
+
     return {
         "ok": True,
         "imported": imported,
         "skipped": skipped,
+        "matched_auto": matched_auto,
         "total": len(tx_rows),
     }
