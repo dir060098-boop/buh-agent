@@ -191,6 +191,11 @@ export default function Journal(){
   const [tab,setTab]=useState('journal')
   const [entries,setEntries]=useState([])
   const [report,setReport]=useState(null)
+  // ОСВ
+  const [osv,setOsv]=useState(null)
+  const [osvLoading,setOsvLoading]=useState(false)
+  const [osvFrom,setOsvFrom]=useState(()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`})
+  const [osvTo,setOsvTo]=useState(()=>new Date().toISOString().slice(0,10))
   const [loading,setLoading]=useState(true)
   const [postingAll,setPostingAll]=useState(false)
   const [filterStatus,setFilterStatus]=useState('')
@@ -256,6 +261,19 @@ export default function Journal(){
 
   useEffect(()=>{loadJournal()},[loadJournal])
   useEffect(()=>{if(tab==='report')loadReport()},[tab,reportDate])
+
+  async function loadOsv(){
+    setOsvLoading(true)
+    try{
+      const params={}
+      if(osvFrom)params.date_from=osvFrom
+      if(osvTo)params.date_to=osvTo
+      const r=await posting.trialBalance(companyId,params)
+      setOsv(r.data)
+    }catch(e){setOsv(null)}
+    finally{setOsvLoading(false)}
+  }
+  useEffect(()=>{if(tab==='osv')loadOsv()},[tab])
 
   async function loadReport(){
     setLoading(true)
@@ -394,7 +412,7 @@ export default function Journal(){
 
       {/* Табы */}
       <div style={{display:'flex',gap:4,padding:'14px 20px 0'}}>
-        {[['journal','📋 Журнал'],['report','📊 Отчёт за день']].map(([key,label])=>(
+        {[['journal','📋 Журнал'],['osv','📊 ОСВ']].map(([key,label])=>(
           <button key={key} onClick={()=>setTab(key)} style={{padding:'7px 16px',borderRadius:'var(--radius-sm)',border:tab===key?'none':'1px solid var(--border)',fontFamily:'inherit',fontSize:13,fontWeight:700,cursor:'pointer',background:tab===key?'var(--accent)':'var(--surface)',color:tab===key?'#fff':'var(--text2)',boxShadow:tab===key?'var(--shadow-sm)':'none'}}>{label}</button>
         ))}
       </div>
@@ -527,7 +545,80 @@ export default function Journal(){
           </>
         )}
 
-        {/* ── ОТЧЁТ ЗА ДЕНЬ ── */}
+        {/* ── ОСВ: Оборотно-сальдовая ведомость ── */}
+        {tab==='osv'&&(
+          <div>
+            {/* Период */}
+            <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16,flexWrap:'wrap'}}>
+              <input type="date" value={osvFrom} onChange={e=>setOsvFrom(e.target.value)} style={INP2}/>
+              <span style={{color:'var(--text3)'}}>—</span>
+              <input type="date" value={osvTo} onChange={e=>setOsvTo(e.target.value)} style={INP2}/>
+              <button onClick={loadOsv} style={{background:'var(--accent)',color:'#fff',border:'none',padding:'8px 16px',borderRadius:'var(--radius-sm)',fontSize:13,fontWeight:700,cursor:'pointer',fontFamily:'inherit',boxShadow:'var(--shadow-sm)'}}>
+                Сформировать
+              </button>
+              {osv&&!osv.balanced&&(
+                <span style={{fontSize:12,color:'var(--error)',fontWeight:700,background:'var(--error-light)',padding:'4px 10px',borderRadius:'var(--radius-sm)'}}>
+                  ⚠️ Обороты Дт ≠ Кт — проверьте проводки
+                </span>
+              )}
+            </div>
+
+            {osvLoading?(
+              <div style={{textAlign:'center',padding:40,color:'var(--text3)'}}>⏳ Формирую ведомость...</div>
+            ):!osv||osv.rows.length===0?(
+              <div style={{textAlign:'center',padding:40,background:'var(--surface)',borderRadius:'var(--radius-lg)',border:'1px solid var(--border)',color:'var(--text3)'}}>
+                Нет проведённых операций за период
+              </div>
+            ):(
+              <div style={{background:'var(--surface)',border:'1px solid var(--border)',borderRadius:'var(--radius-lg)',overflow:'auto',boxShadow:'var(--shadow-sm)'}}>
+                <table style={{width:'100%',borderCollapse:'collapse',fontSize:12,minWidth:820}}>
+                  <thead>
+                    <tr style={{background:'var(--surface2)'}}>
+                      <th rowSpan={2} style={{padding:'8px 10px',textAlign:'left',borderBottom:'2px solid var(--border)',borderRight:'1px solid var(--border)',fontSize:10,color:'var(--text3)',textTransform:'uppercase',letterSpacing:'0.05em',minWidth:200}}>Счёт</th>
+                      <th colSpan={2} style={{padding:'6px 10px',textAlign:'center',borderBottom:'1px solid var(--border)',borderRight:'1px solid var(--border)',fontSize:10,color:'var(--text3)',textTransform:'uppercase'}}>Сальдо начальное</th>
+                      <th colSpan={2} style={{padding:'6px 10px',textAlign:'center',borderBottom:'1px solid var(--border)',borderRight:'1px solid var(--border)',fontSize:10,color:'var(--text3)',textTransform:'uppercase'}}>Обороты за период</th>
+                      <th colSpan={2} style={{padding:'6px 10px',textAlign:'center',borderBottom:'1px solid var(--border)',fontSize:10,color:'var(--text3)',textTransform:'uppercase'}}>Сальдо конечное</th>
+                    </tr>
+                    <tr style={{background:'var(--surface2)'}}>
+                      {['Дебет','Кредит','Дебет','Кредит','Дебет','Кредит'].map((h,i)=>(
+                        <th key={i} style={{padding:'5px 10px',textAlign:'right',borderBottom:'2px solid var(--border)',borderRight:i%2===1?'1px solid var(--border)':'none',fontSize:10,color:'var(--text3)',minWidth:90}}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {osv.rows.map(r=>(
+                      <tr key={r.account}
+                        onMouseEnter={e=>e.currentTarget.style.background='var(--surface2)'}
+                        onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                        <td style={{padding:'7px 10px',borderBottom:'1px solid var(--border)',borderRight:'1px solid var(--border)'}}>
+                          <span style={{fontWeight:700,color:'var(--accent)',marginRight:6}}>{r.account}</span>
+                          <span style={{color:'var(--text2)',fontSize:11}}>{r.account_name}</span>
+                        </td>
+                        {[r.opening_debit,r.opening_credit,r.period_debit,r.period_credit,r.closing_debit,r.closing_credit].map((v,i)=>(
+                          <td key={i} style={{padding:'7px 10px',textAlign:'right',borderBottom:'1px solid var(--border)',borderRight:i%2===1?'1px solid var(--border)':'none',fontVariantNumeric:'tabular-nums',color:v?'var(--text)':'var(--text4)',fontWeight:v?600:400}}>
+                            {v?v.toLocaleString('ru-RU',{minimumFractionDigits:2}):'—'}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr style={{background:'var(--surface2)'}}>
+                      <td style={{padding:'9px 10px',fontWeight:800,borderTop:'2px solid var(--border)',borderRight:'1px solid var(--border)',color:'var(--text)'}}>ИТОГО</td>
+                      {[osv.totals.opening_debit,osv.totals.opening_credit,osv.totals.period_debit,osv.totals.period_credit,osv.totals.closing_debit,osv.totals.closing_credit].map((v,i)=>(
+                        <td key={i} style={{padding:'9px 10px',textAlign:'right',fontWeight:800,borderTop:'2px solid var(--border)',borderRight:i%2===1?'1px solid var(--border)':'none',fontVariantNumeric:'tabular-nums',color:'var(--text)'}}>
+                          {v?v.toLocaleString('ru-RU',{minimumFractionDigits:2}):'—'}
+                        </td>
+                      ))}
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── ОТЧЁТ ЗА ДЕНЬ (legacy, вкладка скрыта) ── */}
         {tab==='report'&&(
           <div>
             <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16}}>

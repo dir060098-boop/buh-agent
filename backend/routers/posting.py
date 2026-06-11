@@ -493,6 +493,122 @@ def journal_stats(
     }
 
 
+# ── ОСВ: Оборотно-сальдовая ведомость ────────────────────────────────────
+@router.get("/trial-balance")
+def trial_balance(
+    company_id: int,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Оборотно-сальдовая ведомость за период.
+
+    Для каждого счёта: сальдо начальное (Дт/Кт), обороты за период (Дт/Кт),
+    сальдо конечное (Дт/Кт). Учитываются ВСЕ posted-проводки включая архив.
+    Сумма в KGS: amount_kgs если есть, иначе amount (для KGS-проводок).
+    """
+    company = db.query(Company).filter(
+        Company.id == company_id, Company.owner_id == current_user.id
+    ).first()
+    if not company:
+        raise HTTPException(403, "Нет доступа")
+
+    from sqlalchemy import func as sa_func, case
+
+    # Сумма в KGS: COALESCE(amount_kgs, amount)
+    amt = sa_func.coalesce(JournalEntry.amount_kgs, JournalEntry.amount)
+
+    def _turnovers(account_col, dt_from=None, dt_to=None):
+        """Обороты по счёту (дебетовые или кредитовые) за интервал."""
+        q = db.query(
+            account_col.label("account"),
+            sa_func.sum(amt).label("total"),
+        ).filter(
+            JournalEntry.company_id == company_id,
+            JournalEntry.status     == "posted",
+        )
+        if dt_from:
+            q = q.filter(JournalEntry.entry_date >= dt_from)
+        if dt_to:
+            q = q.filter(JournalEntry.entry_date <= dt_to)
+        return {r.account: float(r.total or 0) for r in q.group_by(account_col).all()}
+
+    # Обороты ДО периода (для сальдо начального)
+    open_debit, open_credit = {}, {}
+    if date_from:
+        from datetime import date as _date, timedelta as _td
+        day_before = (_date.fromisoformat(date_from) - _td(days=1)).isoformat()
+        open_debit  = _turnovers(JournalEntry.debit_account,  dt_to=day_before)
+        open_credit = _turnovers(JournalEntry.credit_account, dt_to=day_before)
+
+    # Обороты ЗА период
+    per_debit  = _turnovers(JournalEntry.debit_account,  dt_from=date_from, dt_to=date_to)
+    per_credit = _turnovers(JournalEntry.credit_account, dt_from=date_from, dt_to=date_to)
+
+    # Все счета встречающиеся в данных
+    accounts = sorted(
+        set(open_debit) | set(open_credit) | set(per_debit) | set(per_credit)
+    )
+    if not accounts:
+        return {"rows": [], "totals": {}, "period": {"from": date_from, "to": date_to}}
+
+    # Названия счетов из плана
+    chart = {
+        a.code: a.name
+        for a in db.query(ChartOfAccount).filter(ChartOfAccount.code.in_(accounts)).all()
+    }
+
+    rows = []
+    t_ob_d = t_ob_k = t_per_d = t_per_k = t_cb_d = t_cb_k = 0.0
+
+    for code in accounts:
+        # Сальдо начальное: дебетовые обороты − кредитовые (до периода)
+        ob_net = open_debit.get(code, 0) - open_credit.get(code, 0)
+        ob_d = round(ob_net, 2)  if ob_net > 0 else 0.0
+        ob_k = round(-ob_net, 2) if ob_net < 0 else 0.0
+
+        pd_ = round(per_debit.get(code, 0), 2)
+        pk_ = round(per_credit.get(code, 0), 2)
+
+        # Сальдо конечное
+        cb_net = ob_net + pd_ - pk_
+        cb_d = round(cb_net, 2)  if cb_net > 0 else 0.0
+        cb_k = round(-cb_net, 2) if cb_net < 0 else 0.0
+
+        # Пропускаем полностью нулевые строки
+        if not any([ob_d, ob_k, pd_, pk_, cb_d, cb_k]):
+            continue
+
+        rows.append({
+            "account":       code,
+            "account_name":  chart.get(code, ""),
+            "opening_debit":  ob_d,
+            "opening_credit": ob_k,
+            "period_debit":   pd_,
+            "period_credit":  pk_,
+            "closing_debit":  cb_d,
+            "closing_credit": cb_k,
+        })
+        t_ob_d += ob_d; t_ob_k += ob_k
+        t_per_d += pd_; t_per_k += pk_
+        t_cb_d += cb_d; t_cb_k += cb_k
+
+    return {
+        "rows": rows,
+        "totals": {
+            "opening_debit":  round(t_ob_d, 2),
+            "opening_credit": round(t_ob_k, 2),
+            "period_debit":   round(t_per_d, 2),
+            "period_credit":  round(t_per_k, 2),
+            "closing_debit":  round(t_cb_d, 2),
+            "closing_credit": round(t_cb_k, 2),
+        },
+        "period": {"from": date_from, "to": date_to},
+        "balanced": abs(t_per_d - t_per_k) < 0.01,
+    }
+
+
 # ── Список закрытых периодов компании ────────────────────────────────────
 @router.get("/closed-periods")
 def get_closed_periods(

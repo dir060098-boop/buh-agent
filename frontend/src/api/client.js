@@ -75,6 +75,8 @@ export const posting = {
     api.get(`/api/posting/closed-periods`, { params: { company_id: companyId } }),
   journalStats:   (companyId, params) =>
     api.get(`/api/posting/journal-stats`, { params: { company_id: companyId, ...params } }),
+  trialBalance:   (companyId, params) =>
+    api.get(`/api/posting/trial-balance`, { params: { company_id: companyId, ...params } }),
 }
 
 export const documents = {
