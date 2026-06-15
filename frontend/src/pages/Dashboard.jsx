@@ -1,6 +1,8 @@
 import { useEffect, useState, useCallback } from 'react'
 import { companies, posting, auth } from '../api/client'
 import { useNavigate } from 'react-router-dom'
+import { useToast } from '../hooks/useToast'
+import Toast from '../components/Toast'
 
 const EMPTY = { name:'', inn:'', tax_regime:'ОРН (общий режим)' }
 
@@ -37,6 +39,7 @@ export default function Dashboard() {
   const [postingCompany, setPostingCompany] = useState(null)
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light')
   const navigate = useNavigate()
+  const { toasts, showToast, removeToast } = useToast()
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme)
@@ -60,7 +63,7 @@ export default function Dashboard() {
     try {
       await posting.autoAll(companyId)
       await load()
-    } catch(e) { alert(e.response?.data?.detail || e.message) }
+    } catch(e) { showToast(e.response?.data?.detail || e.message, 'error') }
     finally { setPostingCompany(null) }
   }
 
@@ -417,6 +420,7 @@ function CompanyForm({ title, form, setForm, error, saving, onSubmit, onCancel, 
           </button>
         </div>
       </form>
+      <Toast toasts={toasts} onRemove={removeToast} />
     </div>
   )
 }

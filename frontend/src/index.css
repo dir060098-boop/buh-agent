@@ -95,4 +95,5 @@ a { color: var(--accent); text-decoration: none; }
 .num { font-variant-numeric: tabular-nums; font-feature-settings: "tnum"; }
 @keyframes progress { 0%{margin-left:-60%} 100%{margin-left:100%} }
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes toast-in { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
 .spin { animation: spin 1s linear infinite; }

@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { esf as esfApi, companies, bank, documents } from '../api/client'
 import ConfirmModal from '../components/ConfirmModal'
 import NavBar from '../components/NavBar'
+import { useToast } from '../hooks/useToast'
+import Toast from '../components/Toast'
 
 // ── Стили ──────────────────────────────────────────────────────────────────
 const SEL = {
@@ -56,6 +58,7 @@ export default function ESF() {
   const [esfLoadingMore, setEsfLoadingMore] = useState(false)
   const ESF_LIMIT = 100
   const [confirmState, setConfirmState] = useState(null)
+  const { toasts, showToast, removeToast } = useToast()
 
   // Фильтры
   const [dateFrom, setDateFrom] = useState('')
@@ -152,7 +155,7 @@ export default function ESF() {
       setForm(EMPTY_FORM)
       loadRecords()
     } catch (err) {
-      alert(err.response?.data?.detail || 'Ошибка')
+      showToast(err.response?.data?.detail || 'Ошибка', 'error')
     } finally { setSaving(false) }
   }
 
@@ -181,7 +184,7 @@ export default function ESF() {
       }
       loadRecords()
     } catch (err) {
-      alert(err.response?.data?.detail || 'Ошибка')
+      showToast(err.response?.data?.detail || 'Ошибка', 'error')
     }
   }
 
@@ -740,6 +743,7 @@ export default function ESF() {
       )}
 
       <ConfirmModal state={confirmState} onClose={() => setConfirmState(null)} />
+      <Toast toasts={toasts} onRemove={removeToast} />
     </div>
   )
 }

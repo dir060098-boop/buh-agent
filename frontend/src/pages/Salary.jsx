@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { salary, companies } from '../api/client'
 import ConfirmModal from '../components/ConfirmModal'
 import NavBar from '../components/NavBar'
+import { useToast } from '../hooks/useToast'
+import Toast from '../components/Toast'
 
 // ── Утилиты ────────────────────────────────────────────────────────────────
 function fmt(n) {
@@ -47,6 +49,7 @@ export default function Salary() {
   const [selectedRun, setSelectedRun] = useState(null)    // детали прошлого расчёта
   const [loading, setLoading]   = useState(false)
   const [confirmState, setConfirmState] = useState(null)
+  const { toasts, showToast, removeToast } = useToast()
 
   // Форма добавления / редактирования сотрудника
   const [showAddEmp, setShowAddEmp] = useState(false)
@@ -178,7 +181,7 @@ export default function Salary() {
       setSelectedRun(r.data)
       loadHistory()
     } catch (err) {
-      alert(err.response?.data?.detail || 'Ошибка выплаты')
+      showToast(err.response?.data?.detail || 'Ошибка выплаты', 'error')
     } finally { setPaying(false) }
   }
 
@@ -190,7 +193,7 @@ export default function Salary() {
       setSelectedRun(r.data)
       loadHistory()
     } catch (err) {
-      alert(err.response?.data?.detail || 'Ошибка оплаты налогов')
+      showToast(err.response?.data?.detail || 'Ошибка оплаты налогов', 'error')
     } finally { setPaying(false) }
   }
 
@@ -239,7 +242,7 @@ export default function Salary() {
       setSelectedRun(run.data)
     } catch (err) {
       const msg = err.response?.data?.detail || 'Ошибка расчёта'
-      alert(msg)
+      showToast(msg, 'error')
     } finally { setPosting(false) }
   }
 
@@ -256,7 +259,7 @@ export default function Salary() {
       setSelectedRun(r.data)
       loadHistory()
     } catch (err) {
-      alert(err.response?.data?.detail || 'Ошибка')
+      showToast(err.response?.data?.detail || 'Ошибка', 'error')
     } finally { setPaying(false) }
   }
 
@@ -288,7 +291,7 @@ export default function Salary() {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
     } catch {
-      alert('Ошибка экспорта')
+      showToast('Ошибка экспорта', 'error')
     }
   }
 
@@ -302,7 +305,7 @@ export default function Salary() {
       setLeaveForm(EMPTY_LEAVE)
       loadLeaves()
     } catch (err) {
-      alert(err.response?.data?.detail || 'Ошибка')
+      showToast(err.response?.data?.detail || 'Ошибка', 'error')
     } finally { setSavingLeave(false) }
   }
 
@@ -1123,6 +1126,7 @@ export default function Salary() {
       )}
 
       <ConfirmModal state={confirmState} onClose={() => setConfirmState(null)} />
+      <Toast toasts={toasts} onRemove={removeToast} />
     </div>
   )
 }

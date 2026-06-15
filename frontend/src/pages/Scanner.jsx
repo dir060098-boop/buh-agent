@@ -2,6 +2,8 @@ import { useState, useRef, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { scanner, posting } from '../api/client'
 import NavBar from '../components/NavBar'
+import { useToast } from '../hooks/useToast'
+import Toast from '../components/Toast'
 
 const DOC_TYPES = [
   ['invoice','Счёт на оплату'],['act','Акт'],['esf','ЭСФ'],
@@ -47,6 +49,12 @@ export default function Scanner() {
   const [accountSearch, setAccountSearch] = useState('')
   const [accounts, setAccounts] = useState([])
 
+  // Пакетный режим
+  const [batchQueue, setBatchQueue] = useState([])
+  const [batchDone, setBatchDone] = useState(false)
+
+  const { toasts, showToast, removeToast } = useToast()
+
   // Загружаем план счетов при открытии страницы, не ждём распознавания
   useEffect(() => {
     posting.chartOfAccounts().then(res => setAccounts(res.data)).catch(() => {})
@@ -66,6 +74,60 @@ export default function Scanner() {
       setPreview(null)
     }
     recognizeFile(file)
+  }
+
+  function handleFiles(fileList) {
+    const files = Array.from(fileList).filter(Boolean)
+    if (files.length === 0) return
+    if (files.length === 1) { handleFile(files[0]); return }
+    const items = files.map(f => ({ file: f, name: f.name, status: 'waiting', result: null, error: null }))
+    setBatchQueue(items)
+    setBatchDone(false)
+    setState('batch')
+    processBatch(items)
+  }
+
+  async function processBatch(items) {
+    for (let i = 0; i < items.length; i++) {
+      setBatchQueue(q => q.map((it, idx) => idx === i ? { ...it, status: 'scanning' } : it))
+      try {
+        const fd = new FormData()
+        fd.append('file', items[i].file)
+        const res = await scanner.recognize(companyId, fd)
+        const data = res.data
+        const r = data.recognition
+        const payload = {
+          file_path: data.file_path,
+          doc_type: r.doc_type || 'other',
+          doc_number: r.doc_number || null,
+          doc_date: r.doc_date || null,
+          counterparty: r.counterparty || null,
+          counterparty_inn: r.counterparty_inn || null,
+          amount: r.amount ? parseFloat(r.amount) : null,
+          vat_amount: parseFloat(r.vat_amount) || 0,
+          currency: r.currency || 'KGS',
+          operation_type: r.operation_type || null,
+          summary: r.summary || null,
+          ai_raw_json: data.ai_raw_json,
+          auto_post: true
+        }
+        const confirmRes = await scanner.confirm(companyId, payload)
+        setBatchQueue(q => q.map((it, idx) => idx === i
+          ? { ...it, status: 'done', result: confirmRes.data, recognition: r }
+          : it))
+      } catch(e) {
+        setBatchQueue(q => q.map((it, idx) => idx === i
+          ? { ...it, status: 'error', error: e.response?.data?.detail || e.message }
+          : it))
+      }
+    }
+    setBatchDone(true)
+  }
+
+  function resetBatch() {
+    setBatchQueue([])
+    setBatchDone(false)
+    reset()
   }
 
   async function recognizeFile(file) {
@@ -166,8 +228,7 @@ export default function Scanner() {
 
   function handleDrop(e) {
     e.preventDefault()
-    const file = e.dataTransfer.files[0]
-    if (file) handleFile(file)
+    if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files)
   }
 
   const canConfirm = form.amount && (form.counterparty || form.counterparty_inn) && state !== 'saving'
@@ -192,8 +253,8 @@ export default function Scanner() {
           <div onDrop={handleDrop} onDragOver={e=>e.preventDefault()}
             style={{border:'2px dashed var(--border2)', borderRadius:'var(--radius-lg)', padding:'40px 24px', textAlign:'center', background:'var(--surface)', cursor:'pointer', boxShadow:'var(--shadow-sm)'}}>
             <div style={{fontSize:48, marginBottom:12}}>📄</div>
-            <p style={{margin:'0 0 6px', fontSize:15, fontWeight:700, color:'var(--text)'}}>Перетащите файл или выберите способ</p>
-            <p style={{margin:'0 0 24px', fontSize:12, color:'var(--text3)'}}>PDF, JPEG, PNG, WEBP, HEIC</p>
+            <p style={{margin:'0 0 6px', fontSize:15, fontWeight:700, color:'var(--text)'}}>Перетащите файлы или выберите способ</p>
+            <p style={{margin:'0 0 24px', fontSize:12, color:'var(--text3)'}}>PDF, JPEG, PNG, WEBP, HEIC · Можно выбрать несколько файлов сразу</p>
             <div style={{display:'flex', gap:12, justifyContent:'center', flexWrap:'wrap'}}>
               <button onClick={()=>cameraInputRef.current?.click()}
                 style={{display:'flex', alignItems:'center', gap:8, background:'var(--accent)', color:'#fff', border:'none', padding:'12px 20px', borderRadius:'var(--radius)', fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'inherit', boxShadow:'var(--shadow)'}}>
@@ -204,8 +265,8 @@ export default function Scanner() {
                 📁 Загрузить файл
               </button>
             </div>
-            <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" style={{display:'none'}} onChange={e=>handleFile(e.target.files[0])}/>
-            <input ref={fileInputRef} type="file" accept="image/*,application/pdf,.heic,.heif" style={{display:'none'}} onChange={e=>handleFile(e.target.files[0])}/>
+            <input ref={cameraInputRef} type="file" accept="image/*" capture="environment" style={{display:'none'}} onChange={e=>handleFiles(e.target.files)}/>
+            <input ref={fileInputRef} type="file" multiple accept="image/*,application/pdf,.heic,.heif" style={{display:'none'}} onChange={e=>handleFiles(e.target.files)}/>
           </div>
         )}
 
@@ -219,6 +280,101 @@ export default function Scanner() {
             <div style={{height:4, background:'var(--border)', borderRadius:2, overflow:'hidden'}}>
               <div style={{height:'100%', background:'var(--accent)', borderRadius:2, animation:'progress 2s ease-in-out infinite', width:'60%'}}/>
             </div>
+          </div>
+        )}
+
+        {/* ── BATCH ── */}
+        {state === 'batch' && (
+          <div style={{background:'var(--surface)', borderRadius:'var(--radius-lg)', border:'1px solid var(--border)', overflow:'hidden', boxShadow:'var(--shadow-sm)'}}>
+            {/* Шапка */}
+            <div style={{padding:'14px 18px', borderBottom:'1px solid var(--border)', background:'var(--surface2)', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+              <div>
+                <div style={{fontWeight:800, fontSize:15, color:'var(--text)'}}>📦 Пакетная обработка</div>
+                <div style={{fontSize:12, color:'var(--text3)', marginTop:2}}>
+                  {batchQueue.filter(i=>i.status==='done').length} из {batchQueue.length} обработано
+                </div>
+              </div>
+              {batchDone && (
+                <div style={{background:'var(--success-light)', color:'var(--success)', padding:'4px 12px', borderRadius:20, fontSize:12, fontWeight:700, border:'1px solid var(--success)'}}>
+                  ✅ Готово
+                </div>
+              )}
+            </div>
+
+            {/* Прогресс-бар */}
+            {!batchDone && (
+              <div style={{height:3, background:'var(--border)'}}>
+                <div style={{
+                  height:'100%', background:'var(--accent)', borderRadius:2,
+                  width: `${(batchQueue.filter(i=>i.status==='done'||i.status==='error').length / batchQueue.length) * 100}%`,
+                  transition:'width 0.3s ease'
+                }}/>
+              </div>
+            )}
+
+            {/* Список файлов */}
+            <div style={{maxHeight:420, overflowY:'auto'}}>
+              {batchQueue.map((item, idx) => (
+                <div key={idx} style={{
+                  display:'flex', alignItems:'flex-start', gap:12, padding:'12px 18px',
+                  borderBottom:'1px solid var(--border)',
+                  background: item.status==='scanning' ? 'var(--accent-light)' : 'transparent'
+                }}>
+                  {/* Статус-иконка */}
+                  <div style={{fontSize:18, flexShrink:0, marginTop:1}}>
+                    {item.status==='waiting'  && <span style={{color:'var(--text4)'}}>⏳</span>}
+                    {item.status==='scanning' && <span style={{color:'var(--accent)'}} className="spin">⚙</span>}
+                    {item.status==='done'     && <span style={{color:'var(--success)'}}>✅</span>}
+                    {item.status==='error'    && <span style={{color:'var(--error)'}}>❌</span>}
+                  </div>
+                  {/* Контент */}
+                  <div style={{flex:1, minWidth:0}}>
+                    <div style={{fontSize:13, fontWeight:700, color:'var(--text)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}}>{item.name}</div>
+                    {item.status==='scanning' && <div style={{fontSize:12, color:'var(--accent)', marginTop:2}}>AI читает документ...</div>}
+                    {item.status==='done' && item.recognition && (
+                      <div style={{fontSize:12, color:'var(--text2)', marginTop:3, display:'flex', gap:8, flexWrap:'wrap'}}>
+                        {item.recognition.counterparty && <span>{item.recognition.counterparty}</span>}
+                        {item.recognition.amount && <span style={{fontWeight:700, color:'var(--success)'}}>{Number(item.recognition.amount).toLocaleString('ru-RU')} {item.recognition.currency||'KGS'}</span>}
+                        {item.result?.posting?.debit && <span style={{color:'var(--text3)'}}>Дт{item.result.posting.debit}/Кт{item.result.posting.credit}</span>}
+                        {item.result?.esf_id && <span style={{color:'var(--accent)', fontWeight:700}}>⚡ЭСФ</span>}
+                      </div>
+                    )}
+                    {item.status==='error' && <div style={{fontSize:12, color:'var(--error)', marginTop:2}}>{item.error}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Итог и кнопки */}
+            {batchDone && (
+              <div style={{padding:'16px 18px', borderTop:'1px solid var(--border)', background:'var(--surface2)'}}>
+                <div style={{display:'flex', gap:8, marginBottom:12, flexWrap:'wrap'}}>
+                  <span style={{background:'var(--success-light)', color:'var(--success)', padding:'4px 10px', borderRadius:20, fontSize:12, fontWeight:700}}>
+                    ✅ {batchQueue.filter(i=>i.status==='done').length} сохранено
+                  </span>
+                  {batchQueue.filter(i=>i.status==='error').length > 0 && (
+                    <span style={{background:'var(--error-light)', color:'var(--error)', padding:'4px 10px', borderRadius:20, fontSize:12, fontWeight:700}}>
+                      ❌ {batchQueue.filter(i=>i.status==='error').length} ошибок
+                    </span>
+                  )}
+                  {batchQueue.filter(i=>i.result?.esf_id).length > 0 && (
+                    <span style={{background:'var(--accent-light)', color:'var(--accent)', padding:'4px 10px', borderRadius:20, fontSize:12, fontWeight:700}}>
+                      ⚡ {batchQueue.filter(i=>i.result?.esf_id).length} ЭСФ
+                    </span>
+                  )}
+                </div>
+                <div style={{display:'flex', gap:10}}>
+                  <button onClick={resetBatch}
+                    style={{flex:1, background:'var(--accent)', color:'#fff', border:'none', padding:12, borderRadius:'var(--radius)', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit', boxShadow:'var(--shadow)'}}>
+                    📷 Загрузить ещё
+                  </button>
+                  <button onClick={()=>navigate(`/company/${companyId}/journal`)}
+                    style={{flex:1, background:'var(--surface)', color:'var(--text)', border:'1px solid var(--border)', padding:12, borderRadius:'var(--radius)', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'inherit'}}>
+                    📒 В журнал
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -516,6 +672,7 @@ export default function Scanner() {
           </div>
         )}
       </div>
+      <Toast toasts={toasts} onRemove={removeToast} />
     </div>
   )
 }

@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { posting, documents as docsApi, scanner as scannerApi } from '../api/client'
+import { useToast } from '../hooks/useToast'
+import Toast from '../components/Toast'
 
 const MONTHS_RU = ["","Январь","Февраль","Март","Апрель","Май","Июнь",
                    "Июль","Август","Сентябрь","Октябрь","Ноябрь","Декабрь"]
@@ -211,7 +213,7 @@ export default function Journal(){
   const [selectMode,setSelectMode]=useState(false)
   const [selected,setSelected]=useState(new Set())
   const [docViewEntry,setDocViewEntry]=useState(null)
-  const [copyMsg,setCopyMsg]=useState(null)
+  const { toasts, showToast, removeToast } = useToast()
   const [totalEntries,setTotalEntries]=useState(0)
   const [hasMore,setHasMore]=useState(false)
   const [loadingMore,setLoadingMore]=useState(false)
@@ -227,7 +229,7 @@ export default function Journal(){
   const [closedPeriods,setClosedPeriods]=useState([])
 
   function copyToClipboard(text,label){
-    navigator.clipboard.writeText(text).then(()=>{setCopyMsg(label);setTimeout(()=>setCopyMsg(null),2000)})
+    navigator.clipboard.writeText(text).then(()=>showToast(label,'info',2000))
   }
 
   const loadJournal=useCallback(async()=>{
@@ -301,9 +303,8 @@ export default function Journal(){
       setCpPreview(null)
       await loadJournal()
       posting.closedPeriods(companyId).then(r=>setClosedPeriods(r.data)).catch(()=>{})
-      setCopyMsg(`Период ${r.data.period_label} закрыт — ${r.data.archived} проводок`)
-      setTimeout(()=>setCopyMsg(null),4000)
-    }catch(e){alert(e.response?.data?.detail||'Ошибка закрытия периода')}
+      showToast(`Период ${r.data.period_label} закрыт — ${r.data.archived} проводок`)
+    }catch(e){showToast(e.response?.data?.detail||'Ошибка закрытия периода','error')}
     finally{setCpClosing(false)}
   }
 
@@ -313,9 +314,8 @@ export default function Journal(){
       const r=await posting.reopenPeriod(companyId,year,month)
       await loadJournal()
       posting.closedPeriods(companyId).then(r=>setClosedPeriods(r.data)).catch(()=>{})
-      setCopyMsg(`Период ${r.data.period_label} переоткрыт — ${r.data.reopened} проводок`)
-      setTimeout(()=>setCopyMsg(null),4000)
-    }catch(e){alert(e.response?.data?.detail||'Ошибка переоткрытия')}
+      showToast(`Период ${r.data.period_label} переоткрыт — ${r.data.reopened} проводок`)
+    }catch(e){showToast(e.response?.data?.detail||'Ошибка переоткрытия','error')}
   }
 
   async function loadMore(){
@@ -337,20 +337,20 @@ export default function Journal(){
   async function runAutoAll(){
     setPostingAll(true)
     try{await posting.autoAll(companyId);await loadJournal()}
-    catch(e){alert(e.response?.data?.detail||e.message)}
+    catch(e){showToast(e.response?.data?.detail||e.message,'error')}
     finally{setPostingAll(false)}
   }
   async function handleDelete(entryId){
     setDeleting(true)
     try{await posting.deleteEntry(entryId);setDeleteEntry(null);await loadJournal()}
-    catch(e){alert(e.response?.data?.detail||e.message)}
+    catch(e){showToast(e.response?.data?.detail||e.message,'error')}
     finally{setDeleting(false)}
   }
   async function handleBulkDelete(){
     if(selected.size===0)return
     setDeleting(true)
     try{await posting.bulkDelete([...selected]);setSelected(new Set());setSelectMode(false);await loadJournal()}
-    catch(e){alert(e.response?.data?.detail||e.message)}
+    catch(e){showToast(e.response?.data?.detail||e.message,'error')}
     finally{setDeleting(false)}
   }
   function toggleSelect(id){setSelected(prev=>{const s=new Set(prev);s.has(id)?s.delete(id):s.add(id);return s})}
@@ -795,12 +795,7 @@ export default function Journal(){
         </div>
       )}
 
-      {/* Toast */}
-      {copyMsg&&(
-        <div style={{position:'fixed',bottom:24,left:'50%',transform:'translateX(-50%)',background:'var(--text)',color:'var(--bg)',padding:'10px 20px',borderRadius:'var(--radius)',fontSize:13,fontWeight:700,zIndex:300,boxShadow:'var(--shadow-lg)',pointerEvents:'none',whiteSpace:'nowrap'}}>
-          ✓ {copyMsg}
-        </div>
-      )}
+      <Toast toasts={toasts} onRemove={removeToast} />
     </div>
   )
 }

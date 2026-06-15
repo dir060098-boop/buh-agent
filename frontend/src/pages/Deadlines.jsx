@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { deadlines as deadlinesApi, api } from '../api/client'
 import NavBar from '../components/NavBar'
+import { useToast } from '../hooks/useToast'
+import Toast from '../components/Toast'
 
 // ── Статусы ───────────────────────────────────────────────
 const STATUS = {
@@ -51,6 +53,7 @@ export default function Deadlines() {
     title:'', tax_type:'other', deadline_date:'', remind_date:'', notes:''
   })
   const [creating, setCreating] = useState(false)
+  const { toasts, showToast, removeToast } = useToast()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -72,7 +75,7 @@ export default function Deadlines() {
     try {
       await api.post(`/api/deadlines/generate/${companyId}`)
       await load()
-    } catch(e) { alert(e.response?.data?.detail || e.message) }
+    } catch(e) { showToast(e.response?.data?.detail || e.message, 'error') }
     finally { setGenerating(false) }
   }
 
@@ -81,18 +84,18 @@ export default function Deadlines() {
       await api.patch(`/api/deadlines/${d.id}/done`, { notes: doneNote })
       setDoneModal(null); setDoneNote('')
       await load()
-    } catch(e) { alert(e.response?.data?.detail || e.message) }
+    } catch(e) { showToast(e.response?.data?.detail || e.message, 'error') }
   }
 
   async function handleReopen(id) {
     try { await api.patch(`/api/deadlines/${id}/reopen`); await load() }
-    catch(e) { alert(e.response?.data?.detail || e.message) }
+    catch(e) { showToast(e.response?.data?.detail || e.message, 'error') }
   }
 
   async function handleDelete(id) {
     if (!confirm('Удалить дедлайн?')) return
     try { await api.delete(`/api/deadlines/${id}`); await load() }
-    catch(e) { alert(e.response?.data?.detail || e.message) }
+    catch(e) { showToast(e.response?.data?.detail || e.message, 'error') }
   }
 
   async function handleCreate(e) {
@@ -104,7 +107,7 @@ export default function Deadlines() {
       setShowCreate(false)
       setCreateForm({ title:'', tax_type:'other', deadline_date:'', remind_date:'', notes:'' })
       await load()
-    } catch(e) { alert(e.response?.data?.detail || e.message) }
+    } catch(e) { showToast(e.response?.data?.detail || e.message, 'error') }
     finally { setCreating(false) }
   }
 
@@ -380,6 +383,7 @@ export default function Deadlines() {
           </div>
         </div>
       )}
+      <Toast toasts={toasts} onRemove={removeToast} />
     </div>
   )
 }
