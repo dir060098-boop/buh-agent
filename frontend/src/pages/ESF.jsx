@@ -334,6 +334,17 @@ export default function ESF() {
             style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '8px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--success)', alignSelf: 'flex-end' }}>
             📥 Excel
           </button>
+          <button onClick={() => {
+            const params = { direction: tab }
+            if (dateFrom) params.date_from = dateFrom
+            if (dateTo)   params.date_to   = dateTo
+            esfApi.exportXml(companyId, params)
+              .catch(() => showToast('Ошибка экспорта XML', 'error'))
+          }}
+            style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '8px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--accent)', alignSelf: 'flex-end' }}
+            title="Экспорт для загрузки в ИС ЭСФ ГНС КР (esf.salyk.kg)">
+            📤 XML для ГНС
+          </button>
           <button onClick={() => { setShowAdd(true); setForm({ ...EMPTY_FORM, direction: tab }) }}
             style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', padding: '8px 18px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', alignSelf: 'flex-end' }}>
             + Добавить ЭСФ

@@ -114,6 +114,22 @@ export const esf = {
   unlinkTx:   (companyId, esfId)            => api.patch(`/api/esf/${companyId}/${esfId}/unlink-tx`),
   linkDoc:    (companyId, esfId, docId)     => api.patch(`/api/esf/${companyId}/${esfId}/link-doc/${docId}`),
   unlinkDoc:  (companyId, esfId)            => api.patch(`/api/esf/${companyId}/${esfId}/unlink-doc`),
+  exportXml: (companyId, params) => {
+    const base  = api.defaults.baseURL || ''
+    const token = localStorage.getItem('token')
+    const qs    = new URLSearchParams(params).toString()
+    const url   = `${base}/api/esf/${companyId}/export-xml${qs ? '?' + qs : ''}`
+    return fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      .then(r => r.blob())
+      .then(blob => {
+        const dir  = params.direction === 'outgoing' ? 'iskhodyashchie' : 'vkhodyashchie'
+        const link = document.createElement('a')
+        link.href  = URL.createObjectURL(blob)
+        link.download = `esf_${dir}.xml`
+        link.click()
+        URL.revokeObjectURL(link.href)
+      })
+  },
 }
 
 export const bank = {

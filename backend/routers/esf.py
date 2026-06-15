@@ -439,6 +439,115 @@ def link_document(
     return _esf_dict(esf)
 
 
+# ── Экспорт XML для ИС ЭСФ ГНС КР ────────────────────────────────────────
+@router.get("/{company_id}/export-xml")
+def export_xml(
+    company_id: int,
+    direction:  str = "outgoing",
+    date_from:  Optional[str] = None,
+    date_to:    Optional[str] = None,
+    db:   Session = Depends(get_db),
+    company = Depends(require_company),
+):
+    """
+    Генерирует XML-файл для импорта в ИС ЭСФ ГНС КР (esf.salyk.kg).
+    Формат соответствует описанию XML-формата ГНС КР (sti.gov.kg, 2022).
+    """
+    import xml.etree.ElementTree as ET
+    from xml.dom import minidom
+
+    comp = db.query(models.Company).filter(models.Company.id == company_id).first()
+    company_name = comp.name if comp else f"Компания #{company_id}"
+    company_inn  = comp.inn  if comp else ""
+
+    q = db.query(models.ESF).filter(
+        models.ESF.company_id == company_id,
+        models.ESF.direction  == direction,
+    )
+    if date_from:
+        q = q.filter(models.ESF.esf_date >= datetime.strptime(date_from, "%Y-%m-%d"))
+    if date_to:
+        dt_to = datetime.strptime(date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+        q = q.filter(models.ESF.esf_date <= dt_to)
+    records = q.order_by(models.ESF.esf_date).all()
+
+    # ── Строим XML ────────────────────────────────────────────────────────
+    root = ET.Element("ЭСФСписок")
+    root.set("версия", "1.0")
+    root.set("датаФормирования", datetime.now().strftime("%Y-%m-%d"))
+    root.set("организация", company_name)
+    root.set("ИНН", company_inn or "")
+    root.set("направление", "Исходящие" if direction == "outgoing" else "Входящие")
+
+    VAT_RATE_LABEL = {"12": "12", "0": "0", "exempt": "БезНДС"}
+
+    for r in records:
+        esf_el = ET.SubElement(root, "ЭСФ")
+
+        ET.SubElement(esf_el, "Номер").text = r.esf_number or ""
+        ET.SubElement(esf_el, "Дата").text  = (
+            r.esf_date.strftime("%Y-%m-%d") if r.esf_date else ""
+        )
+        if r.contract_number:
+            ET.SubElement(esf_el, "НомерДоговора").text = r.contract_number
+
+        # Продавец
+        seller = ET.SubElement(esf_el, "Поставщик")
+        ET.SubElement(seller, "ИНН").text          = r.supplier_inn  or ""
+        ET.SubElement(seller, "Наименование").text = r.supplier_name or ""
+
+        # Покупатель
+        buyer = ET.SubElement(esf_el, "Покупатель")
+        ET.SubElement(buyer, "ИНН").text          = r.buyer_inn  or ""
+        ET.SubElement(buyer, "Наименование").text = r.buyer_name or ""
+
+        # Суммы
+        amount     = r.amount     or 0.0
+        vat_amount = r.vat_amount or 0.0
+        vat_rate   = VAT_RATE_LABEL.get(r.vat_rate or "12", r.vat_rate or "12")
+
+        if vat_rate == "БезНДС":
+            amount_no_vat = amount
+            vat_amount    = 0.0
+        elif vat_rate == "0":
+            amount_no_vat = amount
+            vat_amount    = 0.0
+        else:
+            # amount — это сумма С НДС
+            amount_no_vat = round(amount - vat_amount, 2)
+
+        ET.SubElement(esf_el, "СуммаСНДС").text    = f"{amount:.2f}"
+        ET.SubElement(esf_el, "СтавкаНДС").text    = vat_rate
+        ET.SubElement(esf_el, "СуммаНДС").text     = f"{vat_amount:.2f}"
+        ET.SubElement(esf_el, "СуммаБезНДС").text  = f"{amount_no_vat:.2f}"
+
+        # Статус
+        STATUS_LABEL = {
+            "pending":  "НеПринят",
+            "accepted": "Принят",
+            "issued":   "Выставлен",
+        }
+        ET.SubElement(esf_el, "Статус").text = STATUS_LABEL.get(r.status or "pending", r.status or "")
+
+    # ── Красивое форматирование ───────────────────────────────────────────
+    raw_xml = ET.tostring(root, encoding="unicode")
+    pretty  = minidom.parseString(
+        f'<?xml version="1.0" encoding="UTF-8"?>{raw_xml}'
+    ).toprettyxml(indent="  ", encoding="UTF-8")
+
+    direction_str = "iskhodyashchie" if direction == "outgoing" else "vkhodyashchie"
+    filename = f"esf_{direction_str}_{company_id}"
+    if date_from: filename += f"_ot{date_from}"
+    if date_to:   filename += f"_do{date_to}"
+    filename += ".xml"
+
+    return StreamingResponse(
+        io.BytesIO(pretty),
+        media_type="application/xml",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 # ── Отвязать от документа ─────────────────────────────────────────────────
 @router.patch("/{company_id}/{esf_id}/unlink-doc")
 def unlink_document(
