@@ -124,9 +124,9 @@ def post_document_with_ai(doc: Document, db: Session) -> JournalEntry:
         result = json.loads(raw)
     except Exception:
         result = {
-            "debit_account": "7590", "credit_account": "3210",
+            "debit_account": "7590", "credit_account": "3110",
             "debit_account_name": "Прочие операционные расходы",
-            "credit_account_name": "Счета к оплате поставщикам",
+            "credit_account_name": "Счета к оплате за товары и услуги",
             "amount": doc.amount or 0, "currency": doc.currency or "KGS",
             "description": "Не удалось разобрать ответ AI",
             "confidence": 0, "reasoning": "Ошибка парсинга", "needs_review": True

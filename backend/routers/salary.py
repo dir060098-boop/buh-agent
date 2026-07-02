@@ -201,6 +201,7 @@ def _post_entry(company_id: int, debit: str, credit: str, amount: float,
     e = models.JournalEntry(
         company_id         = company_id,
         document_id        = None,
+        payroll_run_id     = run.id,
         entry_date         = entry_date,
         debit_account      = debit,
         credit_account     = credit,
@@ -449,9 +450,24 @@ def delete_run(company_id: int, run_id: int,
     ).first()
     if not run:
         raise HTTPException(404, "Расчёт не найден")
+
+    # Удаляем связанные проводки журнала
+    deleted_entries = db.query(models.JournalEntry).filter(
+        models.JournalEntry.payroll_run_id == run.id,
+    ).delete(synchronize_session=False)
+
+    # Fallback для расчётов, созданных до появления payroll_run_id:
+    # авто-проводки зарплаты этой компании с датой = 1-е число месяца расчёта
+    deleted_entries += db.query(models.JournalEntry).filter(
+        models.JournalEntry.company_id     == company_id,
+        models.JournalEntry.payroll_run_id.is_(None),
+        models.JournalEntry.ai_reasoning   == "Авто-проводка: расчёт зарплаты",
+        models.JournalEntry.entry_date     == date(run.year, run.month, 1),
+    ).delete(synchronize_session=False)
+
     db.delete(run)
     db.commit()
-    return {"ok": True}
+    return {"ok": True, "deleted_entries": deleted_entries}
 
 
 # ── Аванс ─────────────────────────────────────────────────────────────────

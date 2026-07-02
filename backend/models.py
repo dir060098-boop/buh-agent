@@ -264,6 +264,7 @@ class JournalEntry(Base):
     id = Column(Integer, primary_key=True)
     company_id = Column(Integer, ForeignKey("companies.id"))
     document_id = Column(Integer, ForeignKey("documents.id"), nullable=True)
+    payroll_run_id = Column(Integer, ForeignKey("payroll_runs.id"), nullable=True)
     entry_date = Column(Date, nullable=False)
     debit_account = Column(String(10), nullable=False)
     credit_account = Column(String(10), nullable=False)

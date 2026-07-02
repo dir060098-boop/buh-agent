@@ -164,7 +164,7 @@ function ReviewModal({entry,onClose,onDone}){
               </div>
               <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:10}}>
                 <div><label style={LBL}>Дебет *</label><input value={debit} onChange={e=>setDebit(e.target.value)} placeholder="7220" style={{...INP,color:'var(--accent)',fontWeight:700}}/></div>
-                <div><label style={LBL}>Кредит *</label><input value={credit} onChange={e=>setCredit(e.target.value)} placeholder="3210" style={{...INP,color:'var(--success)',fontWeight:700}}/></div>
+                <div><label style={LBL}>Кредит *</label><input value={credit} onChange={e=>setCredit(e.target.value)} placeholder="3110" style={{...INP,color:'var(--success)',fontWeight:700}}/></div>
               </div>
               <div><label style={LBL}>Содержание</label><input value={description} onChange={e=>setDescription(e.target.value)} style={INP}/></div>
             </div>

@@ -203,6 +203,8 @@ def _run_migrations():
         "ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS ai_reasoning TEXT",
         "ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR(255)",
         "ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP",
+        # journal_entries — связь с зарплатным расчётом (для каскадного удаления)
+        "ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS payroll_run_id INTEGER REFERENCES payroll_runs(id)",
         # esf — linked_document_id
         "ALTER TABLE esf ADD COLUMN IF NOT EXISTS linked_document_id INTEGER REFERENCES documents(id)",
         # chat_messages — новая таблица (create_all создаст, но добавим IF NOT EXISTS на случай)

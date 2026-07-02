@@ -534,7 +534,7 @@ export default function Scanner() {
                       <div>
                         <label style={LBL}>Кредит (Кт) *</label>
                         <input value={editCredit} onChange={e=>setEditCredit(e.target.value)}
-                          placeholder="3210" style={{...INP, color:'var(--success)', fontWeight:700, fontVariantNumeric:'tabular-nums'}}/>
+                          placeholder="3110" style={{...INP, color:'var(--success)', fontWeight:700, fontVariantNumeric:'tabular-nums'}}/>
                         {previewPosting?.credit_account_name && (
                           <div style={{fontSize:11, color:'var(--text3)', marginTop:3}}>{previewPosting.credit_account_name}</div>
                         )}
