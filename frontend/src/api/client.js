@@ -134,6 +134,27 @@ export const esf = {
 
 export const bank = {
   accounts:          (companyId)            => api.get(`/api/bank/${companyId}/accounts`),
+  export1c: (companyId, params) => {
+    const base  = api.defaults.baseURL || ''
+    const token = localStorage.getItem('token')
+    const qs    = new URLSearchParams(params).toString()
+    const url   = `${base}/api/bank/${companyId}/export-1c${qs ? '?' + qs : ''}`
+    return fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      .then(async r => {
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}))
+          throw new Error(err.detail || 'Ошибка экспорта')
+        }
+        return r.blob()
+      })
+      .then(blob => {
+        const link = document.createElement('a')
+        link.href  = URL.createObjectURL(blob)
+        link.download = 'kl_to_1c.txt'
+        link.click()
+        URL.revokeObjectURL(link.href)
+      })
+  },
   createAccount:     (companyId, data)      => api.post(`/api/bank/${companyId}/accounts`, data),
   deleteAccount:     (accountId)            => api.delete(`/api/bank/accounts/${accountId}`),
   transactions:      (companyId, params)    => api.get(`/api/bank/${companyId}/transactions`, { params }),

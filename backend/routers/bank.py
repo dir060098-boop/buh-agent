@@ -448,6 +448,166 @@ def list_transactions(
     }
 
 
+# ── Экспорт выписки в 1С (формат 1CClientBankExchange) ────────────────────
+@router.get("/{company_id}/export-1c")
+def export_1c(
+    company_id: int,
+    account_id: Optional[int] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+    company = Depends(require_company),
+):
+    """
+    Выгружает банковские операции в формате 1CClientBankExchange (kl_to_1c.txt).
+    Формат читается всеми конфигурациями 1С 8.x (и 7.7) через
+    «Обмен с банком» / загрузку выписки клиент-банка.
+
+    account_id не указан — выгружаются все банковские счета компании
+    (кассы пропускаются: формат применим только к расчётным счетам).
+    Кодировка Windows-1251 — стандарт формата.
+    """
+    from fastapi.responses import Response as _Response
+
+    comp = db.query(models.Company).filter(models.Company.id == company_id).first()
+    company_name = (comp.name if comp else "") or ""
+    company_inn  = (comp.inn  if comp else "") or ""
+
+    accs_q = db.query(models.BankAccount).filter(
+        models.BankAccount.company_id == company_id,
+        models.BankAccount.is_cash    == False,  # noqa: E712 — кассы не выгружаются
+    )
+    if account_id:
+        accs_q = accs_q.filter(models.BankAccount.id == account_id)
+    accs = accs_q.all()
+    if not accs:
+        raise HTTPException(404, "Банковские счета не найдены (кассы в 1С-формат не выгружаются)")
+
+    dt_from = datetime.strptime(date_from, "%Y-%m-%d") if date_from else None
+    dt_to   = (datetime.strptime(date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+               if date_to else None)
+
+    def _clean(s: Optional[str]) -> str:
+        """Формат строковый, построчный — переносы строк недопустимы."""
+        return " ".join(str(s or "").split())
+
+    def _d(dt) -> str:
+        return dt.strftime("%d.%m.%Y") if dt else ""
+
+    now = datetime.now()
+    lines = [
+        "1CClientBankExchange",
+        "ВерсияФормата=1.03",
+        "Кодировка=Windows",
+        "Отправитель=БухАгент",
+        "Получатель=",
+        f"ДатаСоздания={now.strftime('%d.%m.%Y')}",
+        f"ВремяСоздания={now.strftime('%H:%M:%S')}",
+    ]
+
+    # Реальный диапазон дат: заданный либо min/max по выгружаемым операциям
+    all_dates = []
+
+    sections = []       # строки секций (собираем после шапки)
+    total_docs = 0
+
+    for acc in accs:
+        acc_number = _clean(acc.account_number)
+
+        q = db.query(models.BankTransaction).filter(
+            models.BankTransaction.account_id == acc.id
+        )
+        if dt_from: q = q.filter(models.BankTransaction.date >= dt_from)
+        if dt_to:   q = q.filter(models.BankTransaction.date <= dt_to)
+        txs = q.order_by(models.BankTransaction.date, models.BankTransaction.id).all()
+        if not txs:
+            continue
+
+        all_dates += [t.date for t in txs if t.date]
+
+        # Остатки по счёту: начальный = opening_balance + движение до периода
+        opening = acc.opening_balance or 0.0
+        if dt_from:
+            before = db.query(models.BankTransaction).filter(
+                models.BankTransaction.account_id == acc.id,
+                models.BankTransaction.date < dt_from,
+            ).all()
+            opening += sum(t.amount for t in before if t.direction == "in")
+            opening -= sum(t.amount for t in before if t.direction == "out")
+        total_in  = sum(t.amount for t in txs if t.direction == "in")
+        total_out = sum(t.amount for t in txs if t.direction == "out")
+        closing   = opening + total_in - total_out
+
+        d_start = _d(dt_from or min(t.date for t in txs if t.date))
+        d_end   = _d(dt_to   or max(t.date for t in txs if t.date))
+
+        sections += [
+            "СекцияРасчСчет",
+            f"ДатаНачала={d_start}",
+            f"ДатаКонца={d_end}",
+            f"РасчСчет={acc_number}",
+            f"НачальныйОстаток={opening:.2f}",
+            f"ВсегоПоступило={total_in:.2f}",
+            f"ВсегоСписано={total_out:.2f}",
+            f"КонечныйОстаток={closing:.2f}",
+            "КонецРасчСчет",
+        ]
+
+        for t in txs:
+            cp_name = _clean(t.counterparty)
+            cp_inn  = _clean(t.counterparty_inn)
+            if t.direction == "out":
+                payer_acc,  payer,  payer_inn  = acc_number, company_name, company_inn
+                recv_acc,   recv,   recv_inn   = "",         cp_name,      cp_inn
+            else:
+                payer_acc,  payer,  payer_inn  = "",         cp_name,      cp_inn
+                recv_acc,   recv,   recv_inn   = acc_number, company_name, company_inn
+
+            sections += [
+                "СекцияДокумент=Платежное поручение",
+                f"Номер={_clean(t.doc_number) or t.id}",
+                f"Дата={_d(t.date)}",
+                f"Сумма={(t.amount or 0):.2f}",
+                f"ПлательщикСчет={payer_acc}",
+                f"Плательщик={payer}",
+                f"ПлательщикИНН={payer_inn}",
+                f"ПлательщикРасчСчет={payer_acc}",
+                f"ПолучательСчет={recv_acc}",
+                f"Получатель={recv}",
+                f"ПолучательИНН={recv_inn}",
+                f"ПолучательРасчСчет={recv_acc}",
+                f"НазначениеПлатежа={_clean(t.purpose)}",
+                "КонецДокумента",
+            ]
+            total_docs += 1
+
+    if total_docs == 0:
+        raise HTTPException(404, "Нет операций для выгрузки за указанный период")
+
+    # Шапка: период и перечень счетов
+    lines.append(f"ДатаНачала={_d(dt_from or min(all_dates))}")
+    lines.append(f"ДатаКонца={_d(dt_to or max(all_dates))}")
+    for acc in accs:
+        if acc.account_number:
+            lines.append(f"РасчСчет={_clean(acc.account_number)}")
+
+    lines += sections
+    lines.append("КонецФайла")
+
+    content = "\r\n".join(lines).encode("cp1251", errors="replace")
+
+    filename = f"kl_to_1c_{company_id}"
+    if date_from: filename += f"_{date_from}"
+    if date_to:   filename += f"_{date_to}"
+    filename += ".txt"
+
+    return _Response(
+        content=content,
+        media_type="text/plain; charset=windows-1251",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/{company_id}/transactions")
 def add_transaction(
     company_id: int,

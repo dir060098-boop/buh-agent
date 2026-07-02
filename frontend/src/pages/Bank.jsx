@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { bank, companies } from '../api/client'
 import ConfirmModal from '../components/ConfirmModal'
 import NavBar from '../components/NavBar'
+import { useToast } from '../hooks/useToast'
+import Toast from '../components/Toast'
 
 function fmt(n, cur = 'KGS') {
   if (n == null) return '—'
@@ -77,6 +79,7 @@ export default function Bank() {
   const [importing, setImporting]     = useState(false)
   const [autoPosting, setAutoPosting] = useState(false)
   const [autoPostResult, setAutoPostResult] = useState(null)
+  const { toasts, showToast, removeToast } = useToast()
   const [dragOver, setDragOver]       = useState(false)
   const [confirmState, setConfirmState] = useState(null)
   const [editTx, setEditTx]           = useState(null)   // null = закрыт
@@ -311,6 +314,20 @@ export default function Bank() {
             disabled={accounts.length === 0}
             style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: accounts.length ? 'pointer' : 'not-allowed', fontFamily: 'inherit', color: 'var(--text)', opacity: accounts.length ? 1 : 0.5 }}>
             📥 Загрузить выписку
+          </button>
+          <button onClick={() => {
+            const params = {}
+            if (activeAcc) params.account_id = activeAcc
+            if (dateFrom)  params.date_from  = dateFrom
+            if (dateTo)    params.date_to    = dateTo
+            bank.export1c(companyId, params)
+              .then(() => showToast('Файл kl_to_1c.txt выгружен — загрузите его в 1С через «Обмен с банком»'))
+              .catch(e => showToast(e.message, 'error'))
+          }}
+            disabled={accounts.filter(a => !a.is_cash).length === 0}
+            title="Выгрузка операций в формате 1CClientBankExchange — загружается в 1С 8.3 как выписка клиент-банка"
+            style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: accounts.filter(a => !a.is_cash).length ? 'pointer' : 'not-allowed', fontFamily: 'inherit', color: 'var(--accent)', opacity: accounts.filter(a => !a.is_cash).length ? 1 : 0.5 }}>
+            📤 Экспорт в 1С
           </button>
           {data.summary?.unmatched > 0 && (
             <button onClick={handleAutoPostAll} disabled={autoPosting}
@@ -684,6 +701,7 @@ export default function Bank() {
 
       {/* Модал подтверждения */}
       <ConfirmModal state={confirmState} onClose={() => setConfirmState(null)} />
+      <Toast toasts={toasts} onRemove={removeToast} />
 
       {/* ── Модал: сверка с документом ────────────────────────────────── */}
       {matchModal && (
