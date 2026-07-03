@@ -84,6 +84,27 @@ export const documents = {
   list: (companyId, params)  => api.get(`/api/documents/${companyId}`, { params }),
   approve: (id)              => api.patch(`/api/documents/${id}/approve`),
   delete: (id)               => api.delete(`/api/documents/${id}`),
+  export1c: (companyId, params) => {
+    const base  = api.defaults.baseURL || ''
+    const token = localStorage.getItem('token')
+    const qs    = new URLSearchParams(params).toString()
+    const url   = `${base}/api/documents/${companyId}/export-1c${qs ? '?' + qs : ''}`
+    return fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      .then(async r => {
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}))
+          throw new Error(err.detail || 'Ошибка экспорта')
+        }
+        return r.blob()
+      })
+      .then(blob => {
+        const link = document.createElement('a')
+        link.href  = URL.createObjectURL(blob)
+        link.download = 'Документы_для_1С.xlsx'
+        link.click()
+        URL.revokeObjectURL(link.href)
+      })
+  },
 }
 
 export const esf = {

@@ -3,6 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { documents, scanner } from '../api/client'
 import ConfirmModal from '../components/ConfirmModal'
 import NavBar from '../components/NavBar'
+import { useToast } from '../hooks/useToast'
+import Toast from '../components/Toast'
 
 const DOC_TYPES = [
   ['', 'Все типы'],
@@ -72,6 +74,7 @@ export default function Documents() {
   const [docType, setDocType] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo]     = useState('')
+  const { toasts, showToast, removeToast } = useToast()
 
   const load = useCallback(() => {
     setLoading(true)
@@ -132,10 +135,27 @@ export default function Documents() {
       {/* Шапка модуля */}
       <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '10px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: 'var(--shadow-sm)' }}>
         <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--text)' }}>🗂 Архив документов</div>
-        <button onClick={() => navigate(`/company/${companyId}/scanner`)}
-          style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', padding: '7px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
-          + Загрузить документ
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={() => {
+            const params = {}
+            if (search)   params.search    = search
+            if (docType)  params.doc_type  = docType
+            if (dateFrom) params.date_from = dateFrom
+            if (dateTo)   params.date_to   = dateTo
+            documents.export1c(companyId, params)
+              .then(() => showToast('Файл выгружен — загрузите его в 1С через «Загрузка данных из табличного документа»'))
+              .catch(e => showToast(e.message, 'error'))
+          }}
+            disabled={docs.length === 0}
+            title="Выгрузка документов в Excel под универсальную загрузку в 1С:Бухгалтерия 8.3"
+            style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '7px 14px', fontSize: 13, fontWeight: 700, cursor: docs.length ? 'pointer' : 'not-allowed', fontFamily: 'inherit', color: 'var(--accent)', opacity: docs.length ? 1 : 0.5 }}>
+            📤 Экспорт в 1С
+          </button>
+          <button onClick={() => navigate(`/company/${companyId}/scanner`)}
+            style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', padding: '7px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+            + Загрузить документ
+          </button>
+        </div>
       </div>
 
       <div style={{ maxWidth: 1100, margin: '0 auto', padding: '20px 16px' }}>
@@ -228,6 +248,7 @@ export default function Documents() {
       </div>
 
       <ConfirmModal state={confirmState} onClose={() => setConfirmState(null)} />
+      <Toast toasts={toasts} onRemove={removeToast} />
 
       {/* ════════ МОДАЛ ДЕТАЛИ ════════ */}
       {selected && (
