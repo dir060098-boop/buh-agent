@@ -141,20 +141,15 @@ def export_1c(
     thin      = Side(style="thin", color="CCCCCC")
     border    = Border(left=thin, right=thin, top=thin, bottom=thin)
 
-    ws.merge_cells("A1:P1")
+    ws.merge_cells("A1:R1")
     ws["A1"] = f"{company_name} — Документы для загрузки в 1С"
     ws["A1"].font = Font(name="Arial", bold=True, size=12)
     ws.row_dimensions[1].height = 22
 
-    ws.merge_cells("A2:P2")
-    ws["A2"] = f"Сформировано: {_dt.now().strftime('%d.%m.%Y %H:%M')} · документов: {len(docs)}"
-    ws["A2"].font = Font(name="Arial", size=9, color="888888")
-    ws.row_dimensions[2].height = 14
-
     headers = [
         "№", "Дата документа", "Номер документа", "Вид операции",
-        "Контрагент", "ИНН контрагента", "Номенклатура (содержание)",
-        "Кол-во", "Цена (без НДС)", "Сумма (с НДС)",
+        "Контрагент", "ИНН контрагента", "Номенклатура",
+        "Код 1С", "Кол-во", "ЕИ", "Цена", "Сумма",
         "Ставка НДС", "Сумма НДС", "Валюта",
         "Счёт Дт", "Счёт Кт", "Статус разноски",
     ]
@@ -165,49 +160,98 @@ def export_1c(
 
     STATUS_RU = {"pending": "Не разнесён", "posted": "Разнесён", "needs_review": "На проверке"}
 
-    for idx, d in enumerate(docs, 1):
-        row_n = idx + 3
-        amount = d.amount or 0.0
-        vat    = d.vat_amount or 0.0
-        price_no_vat = round(amount - vat, 2)
-        if vat > 0 and (amount - vat) > 0:
-            vat_rate_label = f"{round(vat / (amount - vat) * 100)}%"
-        else:
-            vat_rate_label = "Без НДС"
-        doc_type_val = d.doc_type.value if hasattr(d.doc_type, "value") else str(d.doc_type)
-        nomenclature = d.operation_type or d.ai_summary or DOC_TYPE_LABELS.get(doc_type_val, "Прочее")
+    # Строки документов + канонические позиции (одним запросом на всю выгрузку)
+    doc_ids = [d.id for d in docs]
+    lines_by_doc = {}
+    items_by_id = {}
+    if doc_ids:
+        all_lines = db.query(models.DocumentLine).filter(
+            models.DocumentLine.document_id.in_(doc_ids)
+        ).order_by(models.DocumentLine.document_id, models.DocumentLine.line_no).all()
+        for ln in all_lines:
+            lines_by_doc.setdefault(ln.document_id, []).append(ln)
+        item_ids = {ln.item_id for ln in all_lines if ln.item_id}
+        if item_ids:
+            items_by_id = {
+                it.id: it for it in db.query(models.NomenclatureItem).filter(
+                    models.NomenclatureItem.id.in_(item_ids)).all()
+            }
 
-        row_data = [
-            idx,
+    row_n = 3
+    doc_idx = 0
+    total_rows = 0
+
+    for d in docs:
+        doc_idx += 1
+        doc_type_val = d.doc_type.value if hasattr(d.doc_type, "value") else str(d.doc_type)
+        doc_common = [
             d.doc_date.strftime("%d.%m.%Y") if d.doc_date else "—",
             d.doc_number or "—",
             DOC_TYPE_LABELS.get(doc_type_val, "Прочее"),
             d.counterparty or "—",
             d.counterparty_inn or "—",
-            nomenclature[:200] if nomenclature else "—",
-            1,
-            price_no_vat,
-            round(amount, 2),
-            vat_rate_label,
-            round(vat, 2),
-            d.currency or "KGS",
-            d.debit_account or "—",
-            d.credit_account or "—",
-            STATUS_RU.get(d.posting_status or "pending", d.posting_status or "—"),
         ]
-        fill = sub_fill if idx % 2 == 0 else None
-        for col, val in enumerate(row_data, 1):
-            cell = ws.cell(row=row_n, column=col, value=val)
-            cell.font, cell.border = cell_font, border
-            if fill:
-                cell.fill = fill
-            if col in (9, 10, 12):
-                cell.number_format = '#,##0.00'
-                cell.alignment = Alignment(horizontal="right")
-            elif col == 1:
-                cell.alignment = Alignment(horizontal="center")
+        status_ru = STATUS_RU.get(d.posting_status or "pending", d.posting_status or "—")
+        doc_lines = lines_by_doc.get(d.id, [])
 
-    widths = [5, 14, 16, 16, 30, 16, 32, 7, 13, 13, 10, 12, 8, 9, 9, 14]
+        if doc_lines:
+            # Построчно: канонические названия + код 1С
+            rows = []
+            for ln in doc_lines:
+                item = items_by_id.get(ln.item_id) if ln.item_id else None
+                nomen  = item.name if item else ln.raw_name
+                code1c = (item.code_1c or "") if item else ""
+                unit   = (item.base_unit if item else "") or ln.unit or "шт"
+                rows.append([
+                    (nomen or "—")[:200], code1c, ln.qty, unit,
+                    ln.price, ln.total, ln.vat_rate or "—", None,
+                ])
+        else:
+            # Фолбэк: документ без строк — одной строкой-услугой
+            amount = d.amount or 0.0
+            vat    = d.vat_amount or 0.0
+            price_no_vat = round(amount - vat, 2)
+            if vat > 0 and (amount - vat) > 0:
+                vat_rate_label = f"{round(vat / (amount - vat) * 100)}%"
+            else:
+                vat_rate_label = "Без НДС"
+            nomenclature = d.operation_type or d.ai_summary or DOC_TYPE_LABELS.get(doc_type_val, "Прочее")
+            rows = [[
+                (nomenclature or "—")[:200], "", 1, "усл",
+                price_no_vat, round(amount, 2), vat_rate_label, round(vat, 2),
+            ]]
+
+        fill = sub_fill if doc_idx % 2 == 0 else None
+        for nomen, code1c, qty, unit, price, total_v, vat_label, vat_amt in rows:
+            row_n += 1
+            total_rows += 1
+            row_data = [
+                doc_idx, *doc_common,
+                nomen, code1c, qty, unit, price, total_v,
+                vat_label, vat_amt,
+                d.currency or "KGS",
+                d.debit_account or "—",
+                d.credit_account or "—",
+                status_ru,
+            ]
+            for col, val in enumerate(row_data, 1):
+                cell = ws.cell(row=row_n, column=col, value=val)
+                cell.font, cell.border = cell_font, border
+                if fill:
+                    cell.fill = fill
+                if col in (11, 12, 14):   # цена, сумма, сумма НДС
+                    cell.number_format = '#,##0.00'
+                    cell.alignment = Alignment(horizontal="right")
+                elif col in (1, 9):       # №, кол-во
+                    cell.alignment = Alignment(horizontal="center")
+
+    ws.merge_cells("A2:R2")
+    ws["A2"] = (f"Сформировано: {_dt.now().strftime('%d.%m.%Y %H:%M')} · "
+                f"документов: {len(docs)} · строк: {total_rows}")
+    ws["A2"].font = Font(name="Arial", size=9, color="888888")
+    ws.row_dimensions[2].height = 14
+
+    widths = [5, 12, 15, 14, 26, 15, 32, 11, 7, 7, 12, 13, 10, 11, 8, 9, 9, 13]
     for i, w in enumerate(widths, 1):
         ws.column_dimensions[get_column_letter(i)].width = w
     ws.freeze_panes = "A4"
