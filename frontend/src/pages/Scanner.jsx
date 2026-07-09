@@ -154,7 +154,8 @@ export default function Scanner() {
         currency: r.currency || 'KGS',
         operation_type: r.operation_type || '',
         summary: r.summary || '',
-        auto_post: true
+        auto_post: true,
+        scope: 'official'
       })
       setRecognized(r)
       setState('preview')
@@ -195,7 +196,8 @@ export default function Scanner() {
         operation_type: form.operation_type || null,
         summary: form.summary || null,
         ai_raw_json: aiRawJson,
-        auto_post: form.auto_post
+        auto_post: form.auto_post,
+        scope: form.scope || 'official'
       }
       const res = await scanner.confirm(companyId, payload)
       setSavedResult(res.data)
@@ -597,6 +599,14 @@ export default function Scanner() {
                       style={{width:16, height:16, cursor:'pointer', accentColor:'var(--accent)'}}/>
                     <label htmlFor="auto_post" style={{fontSize:13, color:'var(--text2)', cursor:'pointer'}}>
                       Автоматически разнести по счетам КР после сохранения
+                    </label>
+                  </div>
+                  <div style={{display:'flex', alignItems:'center', gap:10}}>
+                    <input type="checkbox" id="scope_internal" checked={form.scope==='internal'}
+                      onChange={e=>setForm(f=>({...f,scope:e.target.checked?'internal':'official'}))}
+                      style={{width:16, height:16, cursor:'pointer', accentColor:'var(--warn)'}}/>
+                    <label htmlFor="scope_internal" style={{fontSize:13, color:form.scope==='internal'?'var(--warn)':'var(--text2)', cursor:'pointer', fontWeight:form.scope==='internal'?700:400}}>
+                      🔒 Внутренний учёт — не попадёт в выгрузки для 1С
                     </label>
                   </div>
                 </div>

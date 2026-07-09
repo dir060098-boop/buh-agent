@@ -207,10 +207,16 @@ export default function Documents() {
                 onMouseEnter={e => e.currentTarget.style.background = 'var(--surface2)'}
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                 <div style={{ fontSize: 12, color: 'var(--text2)' }}>{fmtDate(doc.doc_date)}</div>
-                <div>
+                <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: 11, color: '#fff', background: tColor, fontWeight: 700, padding: '2px 7px', borderRadius: 10, whiteSpace: 'nowrap' }}>
                     {doc.doc_type_label}
                   </span>
+                  {doc.scope === 'internal' && (
+                    <span title="Внутренний учёт — не попадает в выгрузки для 1С"
+                      style={{ fontSize: 10, color: 'var(--warn)', background: 'var(--warn-light)', fontWeight: 800, padding: '2px 6px', borderRadius: 10, whiteSpace: 'nowrap' }}>
+                      🔒
+                    </span>
+                  )}
                 </div>
                 <div>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.counterparty || '—'}</div>

@@ -37,6 +37,7 @@ def doc_to_dict(doc):
         "vat_amount": doc.vat_amount or 0,
         "posting_status": doc.posting_status or "pending",
         "operation_type": doc.operation_type,
+        "scope": doc.scope or "official",
         "ai_confidence": doc.ai_confidence,
         "ai_summary": doc.ai_summary,
         "file_path": doc.file_path,
@@ -50,6 +51,7 @@ def list_documents(
     search: Optional[str] = Query(None),
     doc_type: Optional[str] = Query(None),
     posting_status: Optional[str] = Query(None),
+    scope: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
     limit: int = Query(100, ge=1, le=500),
@@ -58,6 +60,13 @@ def list_documents(
     company = Depends(require_company),
 ):
     q = db.query(models.Document).filter(models.Document.company_id == company_id)
+    if scope in ("official", "internal"):
+        if scope == "official":
+            # NULL = official (документы, созданные до появления scope)
+            q = q.filter(or_(models.Document.scope == "official",
+                             models.Document.scope.is_(None)))
+        else:
+            q = q.filter(models.Document.scope == "internal")
 
     if search:
         q = q.filter(
@@ -109,6 +118,9 @@ def export_1c(
     company_name = comp.name if comp else f"Компания #{company_id}"
 
     q = db.query(models.Document).filter(models.Document.company_id == company_id)
+    # ЗАЩИТА КОНТУРА: в 1С уходит только официальное (NULL = official для старых)
+    q = q.filter(or_(models.Document.scope == "official",
+                     models.Document.scope.is_(None)))
     if search:
         q = q.filter(or_(
             models.Document.counterparty.ilike(f"%{search}%"),

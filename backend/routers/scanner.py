@@ -511,6 +511,7 @@ class ConfirmData(BaseModel):
     summary: Optional[str] = None
     ai_raw_json: Optional[dict] = None
     auto_post: bool = True                  # разнести автоматически после сохранения
+    scope: str = "official"                 # official | internal — контур учёта
 
 
 # ── ЭНДПОИНТЫ ────────────────────────────────────────────
@@ -855,6 +856,7 @@ async def confirm_document(
         vat_amount=data.vat_amount,
         currency=data.currency,
         operation_type=data.operation_type,
+        scope=data.scope if data.scope in ("official", "internal") else "official",
         file_path=data.file_path,
         ai_summary=data.summary,
         ai_raw_json=data.ai_raw_json,

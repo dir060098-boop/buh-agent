@@ -65,6 +65,7 @@ class Document(Base):
     ai_confidence = Column(Integer)
     posting_status = Column(String, default="pending")  # pending / posted / needs_review
     operation_type = Column(String)
+    scope = Column(String, default="official")   # official | internal — контур учёта
     status = Column(String, default="pending")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     company = relationship("Company", back_populates="documents")
@@ -105,6 +106,7 @@ class BankAccount(Base):
     currency = Column(String, default="KGS")
     opening_balance = Column(Float, default=0.0)  # начальный остаток
     is_cash = Column(Boolean, default=False)       # касса (True) или банк (False)
+    default_scope = Column(String, default="official")  # official | internal — контур по умолчанию
     company = relationship("Company", back_populates="bank_accounts")
     transactions = relationship("BankTransaction", back_populates="account", cascade="all, delete-orphan")
 
@@ -122,6 +124,7 @@ class BankTransaction(Base):
     doc_number = Column(String, nullable=True)          # номер документа из выписки
     linked_document_id = Column(Integer, ForeignKey("documents.id"), nullable=True)
     linked_esf_id = Column(Integer, ForeignKey("esf.id"), nullable=True)
+    scope = Column(String, nullable=True)          # NULL = наследует default_scope счёта
     status = Column(String, default="unmatched")   # unmatched / matched
     journal_entry_id = Column(Integer, ForeignKey("journal_entries.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -278,6 +281,7 @@ class JournalEntry(Base):
     posting_rule_id = Column(Integer, ForeignKey("posting_rules.id"), nullable=True)
     ai_confidence = Column(Integer)
     ai_reasoning = Column(Text)
+    scope = Column(String(20), default="official")  # official | internal — материализуется при создании
     status = Column(String(20), default="posted")  # posted / needs_review / rejected
     reviewed_by = Column(String(255))
     reviewed_at = Column(DateTime)

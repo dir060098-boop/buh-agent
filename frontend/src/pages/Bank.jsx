@@ -48,8 +48,8 @@ const SEL = { background: 'var(--surface)', border: '1.5px solid var(--border)',
 const INP = { ...SEL, cursor: 'text', width: '100%', boxSizing: 'border-box' }
 const LBL = { display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }
 
-const EMPTY_TX  = { account_id: '', date: new Date().toISOString().slice(0, 10), amount: '', direction: 'out', counterparty: '', purpose: '', auto_post: true }
-const EMPTY_ACC = { bank_name: '', account_number: '', currency: 'KGS', opening_balance: '', is_cash: false }
+const EMPTY_TX  = { account_id: '', date: new Date().toISOString().slice(0, 10), amount: '', direction: 'out', counterparty: '', purpose: '', auto_post: true, scope: '' }
+const EMPTY_ACC = { bank_name: '', account_number: '', currency: 'KGS', opening_balance: '', is_cash: false, default_scope: 'official' }
 const EMPTY_EDIT = { id: null, date: '', amount: '', direction: 'out', counterparty: '', purpose: '' }
 
 export default function Bank() {
@@ -177,6 +177,7 @@ export default function Bank() {
       await bank.addTransaction(companyId, {
         ...txForm,
         amount: parseFloat(txForm.amount),
+        scope: txForm.scope || null,
       })
       setShowAddTx(false)
       setTxForm({ ...EMPTY_TX, account_id: txForm.account_id })
@@ -382,8 +383,11 @@ export default function Bank() {
                   <button onClick={e => { e.stopPropagation(); handleDeleteAccount(acc.id, acc.bank_name || (acc.is_cash ? 'Касса' : 'Счёт')) }}
                     style={{ background: 'none', border: 'none', color: 'var(--text4)', fontSize: 14, cursor: 'pointer', padding: 2, lineHeight: 1 }}>×</button>
                 </div>
-                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', marginBottom: 2 }}>
-                  {acc.is_cash ? '💵 КАССА' : '🏦 ' + normalizeBankName(acc.bank_name)}
+                <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', marginBottom: 2, display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
+                  <span>{acc.is_cash ? '💵 КАССА' : '🏦 ' + normalizeBankName(acc.bank_name)}</span>
+                  {acc.default_scope === 'internal' && (
+                    <span style={{ background: 'var(--warn-light)', color: 'var(--warn)', padding: '1px 6px', borderRadius: 8, fontSize: 9, fontWeight: 800 }}>🔒 ВНУТР.</span>
+                  )}
                 </div>
                 {acc.account_number && (
                   <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>
@@ -610,6 +614,22 @@ export default function Bank() {
                   </select>
                 </div>
               </div>
+              <div>
+                <label style={LBL}>Контур учёта</label>
+                <div style={{ display: 'flex', background: 'var(--surface2)', borderRadius: 'var(--radius-sm)', padding: 2, border: '1px solid var(--border)' }}>
+                  {[['official', '📋 Официальный'], ['internal', '🔒 Внутренний']].map(([val, label]) => (
+                    <button key={val} onClick={() => setAccForm(f => ({ ...f, default_scope: val }))}
+                      style={{ flex: 1, background: accForm.default_scope === val ? (val === 'internal' ? 'var(--warn)' : 'var(--accent)') : 'transparent', color: accForm.default_scope === val ? '#fff' : 'var(--text3)', border: 'none', padding: '8px 10px', borderRadius: 6, fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                {accForm.default_scope === 'internal' && (
+                  <div style={{ fontSize: 11, color: 'var(--warn-text)', background: 'var(--warn-light)', padding: '6px 10px', borderRadius: 'var(--radius-sm)', marginTop: 6 }}>
+                    Операции этого счёта не попадут в выгрузки для 1С
+                  </div>
+                )}
+              </div>
             </div>
             <div style={{ padding: '12px 20px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8 }}>
               <button onClick={handleAddAccount} disabled={!accForm.bank_name || saving}
@@ -676,6 +696,14 @@ export default function Bank() {
                 <label style={LBL}>Назначение платежа</label>
                 <input value={txForm.purpose} onChange={e => setTxForm(f => ({ ...f, purpose: e.target.value }))}
                   placeholder="За аренду офиса, счёт №123..." style={INP} />
+              </div>
+              <div>
+                <label style={LBL}>Контур учёта</label>
+                <select value={txForm.scope} onChange={e => setTxForm(f => ({ ...f, scope: e.target.value }))} style={{ ...INP, width: '100%' }}>
+                  <option value="">Как у счёта{(() => { const a = accounts.find(x => x.id === Number(txForm.account_id)); return a ? (a.default_scope === 'internal' ? ' (🔒 внутренний)' : ' (официальный)') : '' })()}</option>
+                  <option value="official">📋 Официальный</option>
+                  <option value="internal">🔒 Внутренний (не для 1С)</option>
+                </select>
               </div>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: 'var(--text2)', cursor: 'pointer' }}>
                 <input type="checkbox" checked={txForm.auto_post}

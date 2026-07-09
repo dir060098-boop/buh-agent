@@ -198,6 +198,7 @@ export default function Journal(){
   const [osvLoading,setOsvLoading]=useState(false)
   const [osvFrom,setOsvFrom]=useState(()=>{const d=new Date();return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`})
   const [osvTo,setOsvTo]=useState(()=>new Date().toISOString().slice(0,10))
+  const [osvScope,setOsvScope]=useState('')   // '' = всё | official | internal
   const [loading,setLoading]=useState(true)
   const [postingAll,setPostingAll]=useState(false)
   const [filterStatus,setFilterStatus]=useState('')
@@ -270,12 +271,13 @@ export default function Journal(){
       const params={}
       if(osvFrom)params.date_from=osvFrom
       if(osvTo)params.date_to=osvTo
+      if(osvScope)params.scope=osvScope
       const r=await posting.trialBalance(companyId,params)
       setOsv(r.data)
     }catch(e){setOsv(null)}
     finally{setOsvLoading(false)}
   }
-  useEffect(()=>{if(tab==='osv')loadOsv()},[tab])
+  useEffect(()=>{if(tab==='osv')loadOsv()},[tab,osvScope])
 
   async function loadReport(){
     setLoading(true)
@@ -553,6 +555,14 @@ export default function Journal(){
               <input type="date" value={osvFrom} onChange={e=>setOsvFrom(e.target.value)} style={INP2}/>
               <span style={{color:'var(--text3)'}}>—</span>
               <input type="date" value={osvTo} onChange={e=>setOsvTo(e.target.value)} style={INP2}/>
+              <div style={{display:'flex',background:'var(--surface2)',borderRadius:'var(--radius-sm)',padding:2,border:'1px solid var(--border)'}}>
+                {[['','Всё'],['official','Официально'],['internal','Внутренне']].map(([val,label])=>(
+                  <button key={val} onClick={()=>setOsvScope(val)}
+                    style={{background:osvScope===val?'var(--accent)':'transparent',color:osvScope===val?'#fff':'var(--text3)',border:'none',padding:'6px 12px',borderRadius:6,fontSize:12,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}}>
+                    {label}
+                  </button>
+                ))}
+              </div>
               <button onClick={loadOsv} style={{background:'var(--accent)',color:'#fff',border:'none',padding:'8px 16px',borderRadius:'var(--radius-sm)',fontSize:13,fontWeight:700,cursor:'pointer',fontFamily:'inherit',boxShadow:'var(--shadow-sm)'}}>
                 Сформировать
               </button>

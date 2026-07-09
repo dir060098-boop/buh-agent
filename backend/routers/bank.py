@@ -21,6 +21,7 @@ class AccountCreate(BaseModel):
     currency: str = "KGS"
     opening_balance: float = 0.0
     is_cash: bool = False
+    default_scope: str = "official"   # official | internal
 
 class TransactionCreate(BaseModel):
     account_id: int
@@ -30,6 +31,7 @@ class TransactionCreate(BaseModel):
     counterparty: str = ""
     purpose: str = ""
     auto_post: bool = True      # создать проводку в журнале
+    scope: Optional[str] = None # None = наследует default_scope счёта
 
 class TransactionUpdate(BaseModel):
     date: Optional[str] = None
@@ -76,6 +78,7 @@ def account_to_dict(acc, db: Session) -> dict:
         "currency": main_cur,
         "opening_balance": acc.opening_balance or 0,
         "is_cash": acc.is_cash or False,
+        "default_scope": acc.default_scope or "official",
         "balance": round(main_bal, 2),
         "balances_by_currency": {k: round(v, 2) for k, v in by_cur.items()},
         "tx_count": len(txs),
@@ -94,6 +97,7 @@ def tx_to_dict(tx) -> dict:
         "purpose": tx.purpose,
         "counterparty_inn": tx.counterparty_inn,
         "doc_number": tx.doc_number,
+        "scope": tx.scope,   # None = наследует default_scope счёта
         "status": tx.status,
         "linked_document_id": tx.linked_document_id,
         "linked_esf_id": getattr(tx, "linked_esf_id", None),
@@ -294,6 +298,7 @@ def _auto_post(tx: models.BankTransaction, acc: models.BankAccount,
             amount_kgs         = amount_kgs,
             exchange_rate      = exchange_rate,
             description        = description[:255],
+            scope              = tx.scope or acc.default_scope or "official",
             status             = "needs_review" if confidence < 75 else "posted",
             ai_confidence      = confidence,
             ai_reasoning       = f"Авторазноска банка: {description[:100]}",
@@ -354,6 +359,7 @@ def create_account(company_id: int, data: AccountCreate,
         currency=data.currency,
         opening_balance=data.opening_balance,
         is_cash=data.is_cash,
+        default_scope=data.default_scope if data.default_scope in ("official", "internal") else "official",
     )
     db.add(acc)
     db.commit()
@@ -513,6 +519,7 @@ def export_1c(
 
     for acc in accs:
         acc_number = _clean(acc.account_number)
+        acc_scope = acc.default_scope or "official"
 
         q = db.query(models.BankTransaction).filter(
             models.BankTransaction.account_id == acc.id
@@ -520,6 +527,9 @@ def export_1c(
         if dt_from: q = q.filter(models.BankTransaction.date >= dt_from)
         if dt_to:   q = q.filter(models.BankTransaction.date <= dt_to)
         txs = q.order_by(models.BankTransaction.date, models.BankTransaction.id).all()
+        # ЗАЩИТА КОНТУРА: в 1С уходит только официальное.
+        # Эффективный scope операции = свой либо унаследованный от счёта.
+        txs = [t for t in txs if (t.scope or acc_scope) == "official"]
         if not txs:
             continue
 
@@ -532,6 +542,7 @@ def export_1c(
                 models.BankTransaction.account_id == acc.id,
                 models.BankTransaction.date < dt_from,
             ).all()
+            before = [t for t in before if (t.scope or acc_scope) == "official"]
             opening += sum(t.amount for t in before if t.direction == "in")
             opening -= sum(t.amount for t in before if t.direction == "out")
         total_in  = sum(t.amount for t in txs if t.direction == "in")
@@ -632,6 +643,7 @@ def add_transaction(
         direction=data.direction,
         counterparty=data.counterparty,
         purpose=data.purpose,
+        scope=data.scope if data.scope in ("official", "internal") else None,
         status="unmatched",
     )
     db.add(tx)

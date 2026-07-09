@@ -146,6 +146,7 @@ def post_document_with_ai(doc: Document, db: Session) -> JournalEntry:
     entry = JournalEntry(
         company_id=doc.company_id,
         document_id=doc.id,
+        scope=getattr(doc, "scope", None) or "official",
         entry_date=doc.doc_date.date() if doc.doc_date else date.today(),
         debit_account=result.get("debit_account"),
         credit_account=result.get("credit_account"),
@@ -244,6 +245,7 @@ def get_journal(
     status: Optional[str] = None,
     counterparty: Optional[str] = None,
     debit_account: Optional[str] = None,
+    scope: Optional[str] = None,
     include_archived: bool = False,
     limit: int = 100,
     offset: int = 0,
@@ -271,6 +273,8 @@ def get_journal(
         q = q.filter(JournalEntry.status == status)
     if debit_account:
         q = q.filter(JournalEntry.debit_account == debit_account)
+    if scope in ("official", "internal"):
+        q = q.filter(JournalEntry.scope == scope)
 
     # Фильтр по контрагенту (через JOIN с Document)
     if counterparty:
@@ -305,6 +309,7 @@ def get_journal(
             # AI данные
             "ai_confidence": e.ai_confidence,
             "ai_reasoning": e.ai_reasoning,
+            "scope": e.scope or "official",
             "status": e.status,
             "is_archived": e.is_archived or False,
             "archived_at": str(e.archived_at) if e.archived_at else None,
@@ -499,6 +504,7 @@ def trial_balance(
     company_id: int,
     date_from: Optional[str] = None,
     date_to: Optional[str] = None,
+    scope: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -507,6 +513,7 @@ def trial_balance(
     Для каждого счёта: сальдо начальное (Дт/Кт), обороты за период (Дт/Кт),
     сальдо конечное (Дт/Кт). Учитываются ВСЕ posted-проводки включая архив.
     Сумма в KGS: amount_kgs если есть, иначе amount (для KGS-проводок).
+    scope: official | internal | None (всё) — фильтр контура учёта.
     """
     company = db.query(Company).filter(
         Company.id == company_id, Company.owner_id == current_user.id
@@ -528,6 +535,8 @@ def trial_balance(
             JournalEntry.company_id == company_id,
             JournalEntry.status     == "posted",
         )
+        if scope in ("official", "internal"):
+            q = q.filter(JournalEntry.scope == scope)
         if dt_from:
             q = q.filter(JournalEntry.entry_date >= dt_from)
         if dt_to:

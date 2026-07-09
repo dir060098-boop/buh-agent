@@ -206,6 +206,11 @@ def _run_migrations():
         "ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP",
         # journal_entries — связь с зарплатным расчётом (для каскадного удаления)
         "ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS payroll_run_id INTEGER REFERENCES payroll_runs(id)",
+        # official/internal — двухконтурный учёт
+        "ALTER TABLE bank_accounts ADD COLUMN IF NOT EXISTS default_scope VARCHAR(20) DEFAULT 'official'",
+        "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS scope VARCHAR(20)",
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS scope VARCHAR(20) DEFAULT 'official'",
+        "ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS scope VARCHAR(20) DEFAULT 'official'",
         # esf — linked_document_id
         "ALTER TABLE esf ADD COLUMN IF NOT EXISTS linked_document_id INTEGER REFERENCES documents(id)",
         # chat_messages — новая таблица (create_all создаст, но добавим IF NOT EXISTS на случай)
