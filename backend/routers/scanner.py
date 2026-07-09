@@ -865,6 +865,23 @@ async def confirm_document(
     db.commit()
     db.refresh(doc)
 
+    # ── Извлечение строк товаров (только нативные PDF) + матчинг к канону ───
+    lines_stats = None
+    if data.file_path and data.file_path.lower().endswith(".pdf"):
+        try:
+            abs_uploads = os.path.abspath(UPLOAD_DIR)
+            abs_path = os.path.abspath(data.file_path)
+            if abs_path.startswith(abs_uploads) and os.path.exists(abs_path):
+                from nomenclature_engine import extract_lines_from_pdf, process_document_lines
+                with open(abs_path, "rb") as f:
+                    raw_lines = extract_lines_from_pdf(f.read())
+                if raw_lines:
+                    lines_stats = process_document_lines(db, doc, raw_lines)
+                    db.commit()
+                    print(f"[SCANNER] ✓ Lines extracted: {lines_stats}")
+        except Exception as e:
+            print(f"[SCANNER] line extraction error: {e}")
+
     # ── Авто-создание записи в модуле ЭСФ если тип документа = esf ──────────
     esf_record = None
     if data.doc_type == "esf" and data.doc_number:
@@ -934,6 +951,7 @@ async def confirm_document(
         "status": "saved",
         "posting": posting_result,
         "esf_id": esf_record.id if esf_record else None,
+        "lines": lines_stats,
     }
 
 

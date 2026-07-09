@@ -4,7 +4,7 @@ from database import engine, Base
 from sqlalchemy import text
 import os
 
-from routers import auth, companies, documents, esf, bank, salary, deadlines, communications, scanner, posting
+from routers import auth, companies, documents, esf, bank, salary, deadlines, communications, scanner, posting, nomenclature
 
 app = FastAPI(title="БухАгент API", version="1.0.0")
 
@@ -52,6 +52,7 @@ app.include_router(deadlines.router,      prefix="/api/deadlines",      tags=["d
 app.include_router(communications.router, prefix="/api/communications", tags=["communications"])
 app.include_router(scanner.router,        prefix="/api/scanner",        tags=["scanner"])
 app.include_router(posting.router,        prefix="/api/posting",        tags=["posting"])
+app.include_router(nomenclature.router,   prefix="/api/nomenclature",   tags=["nomenclature"])
 
 @app.get("/")
 def root():
@@ -223,6 +224,52 @@ def _run_migrations():
             content TEXT NOT NULL,
             created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
         )""",
+        # товарная номенклатура — канон + алиасы + строки документов
+        """CREATE TABLE IF NOT EXISTS nomenclature_items (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL REFERENCES companies(id),
+            name VARCHAR(500) NOT NULL,
+            category VARCHAR(255) DEFAULT '',
+            article VARCHAR(100) DEFAULT '',
+            base_unit VARCHAR(50) DEFAULT 'шт',
+            code_1c VARCHAR(100) DEFAULT '',
+            attrs JSON,
+            is_active BOOLEAN DEFAULT TRUE,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        )""",
+        "CREATE INDEX IF NOT EXISTS ix_nomenclature_items_company ON nomenclature_items (company_id)",
+        """CREATE TABLE IF NOT EXISTS nomenclature_aliases (
+            id SERIAL PRIMARY KEY,
+            company_id INTEGER NOT NULL REFERENCES companies(id),
+            item_id INTEGER NOT NULL REFERENCES nomenclature_items(id),
+            supplier_inn VARCHAR(50) DEFAULT '',
+            raw_name VARCHAR(500) NOT NULL,
+            normalized_name VARCHAR(500) NOT NULL,
+            supplier_code VARCHAR(100) DEFAULT '',
+            unit VARCHAR(50) DEFAULT '',
+            unit_ratio FLOAT DEFAULT 1.0,
+            use_count INTEGER DEFAULT 1,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        )""",
+        "CREATE INDEX IF NOT EXISTS ix_nomenclature_aliases_lookup ON nomenclature_aliases (company_id, supplier_inn, normalized_name)",
+        """CREATE TABLE IF NOT EXISTS document_lines (
+            id SERIAL PRIMARY KEY,
+            document_id INTEGER NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            company_id INTEGER NOT NULL REFERENCES companies(id),
+            line_no INTEGER DEFAULT 1,
+            raw_name VARCHAR(500) NOT NULL,
+            normalized_name VARCHAR(500) DEFAULT '',
+            supplier_code VARCHAR(100) DEFAULT '',
+            unit VARCHAR(50) DEFAULT '',
+            qty FLOAT, price FLOAT, total FLOAT,
+            vat_rate VARCHAR(20) DEFAULT '',
+            item_id INTEGER REFERENCES nomenclature_items(id),
+            match_status VARCHAR(20) DEFAULT 'review',
+            match_note VARCHAR(500) DEFAULT '',
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+        )""",
+        "CREATE INDEX IF NOT EXISTS ix_document_lines_doc ON document_lines (document_id)",
+        "CREATE INDEX IF NOT EXISTS ix_document_lines_review ON document_lines (company_id, match_status)",
         # exchange_rates — курсы НБКР
         """CREATE TABLE IF NOT EXISTS exchange_rates (
             id SERIAL PRIMARY KEY,

@@ -317,3 +317,61 @@ class ClientMessage(Base):
     message_type = Column(String, default="status")   # status | documents | deadline | payment
     content      = Column(Text, nullable=False)
     created_at   = Column(DateTime(timezone=True), server_default=func.now())
+
+
+# ============================================================
+# ТОВАРНАЯ НОМЕНКЛАТУРА — канон + алиасы + строки документов
+# ============================================================
+class NomenclatureItem(Base):
+    """Каноническая позиция: конкретное изделие. Правится только руками."""
+    __tablename__ = "nomenclature_items"
+    id         = Column(Integer, primary_key=True)
+    company_id = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    name       = Column(String, nullable=False)         # каноническое имя (нормализованное)
+    category   = Column(String, default="")             # 'ДЖИНСЫ' из 'ДЖИНСЫ 333'
+    article    = Column(String, default="")             # артикул '333'
+    base_unit  = Column(String, default="шт")           # базовая единица измерения
+    code_1c    = Column(String, default="")             # код существующей позиции в 1С (маппинг)
+    attrs      = Column(JSON, nullable=True)            # марка/размер/ГОСТ — на будущее
+    is_active  = Column(Boolean, default=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    aliases    = relationship("NomenclatureAlias", back_populates="item",
+                              cascade="all, delete-orphan")
+
+
+class NomenclatureAlias(Base):
+    """«Как называет поставщик» → канон. Алиасы бессмертны — это обучение системы."""
+    __tablename__ = "nomenclature_aliases"
+    id              = Column(Integer, primary_key=True)
+    company_id      = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    item_id         = Column(Integer, ForeignKey("nomenclature_items.id"), nullable=False)
+    supplier_inn    = Column(String, default="", index=True)   # "" = документ без ИНН
+    raw_name        = Column(String, nullable=False)           # как в документе
+    normalized_name = Column(String, nullable=False, index=True)
+    supplier_code   = Column(String, default="")               # код товара у поставщика
+    unit            = Column(String, default="")               # ЕИ поставщика
+    unit_ratio      = Column(Float, default=1.0)               # пересчёт в базовую ЕИ канона
+    use_count       = Column(Integer, default=1)
+    created_at      = Column(DateTime(timezone=True), server_default=func.now())
+    item            = relationship("NomenclatureItem", back_populates="aliases")
+
+
+class DocumentLine(Base):
+    """Строка товара/услуги из документа (извлечена из PDF)."""
+    __tablename__ = "document_lines"
+    id              = Column(Integer, primary_key=True)
+    document_id     = Column(Integer, ForeignKey("documents.id"), nullable=False, index=True)
+    company_id      = Column(Integer, ForeignKey("companies.id"), nullable=False, index=True)
+    line_no         = Column(Integer, default=1)
+    raw_name        = Column(String, nullable=False)
+    normalized_name = Column(String, default="")
+    supplier_code   = Column(String, default="")
+    unit            = Column(String, default="")
+    qty             = Column(Float, nullable=True)
+    price           = Column(Float, nullable=True)
+    total           = Column(Float, nullable=True)
+    vat_rate        = Column(String, default="")
+    item_id         = Column(Integer, ForeignKey("nomenclature_items.id"), nullable=True)
+    match_status    = Column(String, default="review")  # auto / suggested / review / confirmed
+    match_note      = Column(String, default="")
+    created_at      = Column(DateTime(timezone=True), server_default=func.now())
