@@ -153,6 +153,21 @@ export const esf = {
   },
 }
 
+export const nomenclature = {
+  items:      (companyId, params)       => api.get(`/api/nomenclature/${companyId}/items`, { params }),
+  createItem: (companyId, data)         => api.post(`/api/nomenclature/${companyId}/items`, data),
+  updateItem: (companyId, itemId, data) => api.patch(`/api/nomenclature/${companyId}/items/${itemId}`, data),
+  aliases:    (companyId, itemId)       => api.get(`/api/nomenclature/${companyId}/items/${itemId}/aliases`),
+  deleteAlias:(companyId, aliasId)      => api.delete(`/api/nomenclature/${companyId}/aliases/${aliasId}`),
+  lines:      (companyId, params)       => api.get(`/api/nomenclature/${companyId}/lines`, { params }),
+  stats:      (companyId)               => api.get(`/api/nomenclature/${companyId}/stats`),
+  link:       (companyId, lineId, data) => api.post(`/api/nomenclature/${companyId}/lines/${lineId}/link`, data),
+  unlink:     (companyId, lineId)       => api.post(`/api/nomenclature/${companyId}/lines/${lineId}/unlink`),
+  bulkLink:   (companyId, data)         => api.post(`/api/nomenclature/${companyId}/lines/bulk-link`, data),
+  bulkAccept: (companyId, data)         => api.post(`/api/nomenclature/${companyId}/lines/bulk-accept`, data),
+  createFromLine: (companyId, lineId, data) => api.post(`/api/nomenclature/${companyId}/lines/${lineId}/create-item`, data),
+}
+
 export const bank = {
   accounts:          (companyId)            => api.get(`/api/bank/${companyId}/accounts`),
   export1c: (companyId, params) => {

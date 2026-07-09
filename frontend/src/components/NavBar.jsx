@@ -7,6 +7,7 @@ const MODULES = [
   { key: 'documents',      icon: '🗂',  label: 'Архив'    },
   { key: 'journal',        icon: '📋', label: 'Журнал'   },
   { key: 'esf',            icon: '⚡', label: 'ЭСФ'      },
+  { key: 'nomenclature',   icon: '📦', label: 'Товары'   },
   { key: 'bank',           icon: '🏦', label: 'Банк'     },
   { key: 'salary',         icon: '💼', label: 'Зарплата' },
   { key: 'deadlines',      icon: '📅', label: 'Сроки'    },

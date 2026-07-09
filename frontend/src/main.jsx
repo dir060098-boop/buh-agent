@@ -11,6 +11,7 @@ import Documents from './pages/Documents'
 import Bank from './pages/Bank'
 import Salary from './pages/Salary'
 import ESF from './pages/ESF'
+import Nomenclature from './pages/Nomenclature'
 import Communications from './pages/Communications'
 import './index.css'
 
@@ -30,6 +31,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
       <Route path="/company/:companyId/bank" element={<PrivateRoute><Bank /></PrivateRoute>} />
       <Route path="/company/:companyId/salary" element={<PrivateRoute><Salary /></PrivateRoute>} />
       <Route path="/company/:companyId/esf"    element={<PrivateRoute><ESF /></PrivateRoute>} />
+      <Route path="/company/:companyId/nomenclature" element={<PrivateRoute><Nomenclature /></PrivateRoute>} />
       <Route path="/company/:companyId/deadlines"       element={<PrivateRoute><Deadlines /></PrivateRoute>} />
       <Route path="/company/:companyId/communications" element={<PrivateRoute><Communications /></PrivateRoute>} />
       <Route path="*" element={<Navigate to="/" />} />
