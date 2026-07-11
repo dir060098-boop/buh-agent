@@ -59,7 +59,6 @@ export const posting = {
   autoAll:        (companyId)       => api.post(`/api/posting/auto-all?company_id=${companyId}`),
   auto:           (docId)           => api.post(`/api/posting/auto/${docId}`),
   journal:        (companyId, params) => api.get(`/api/posting/journal`, { params: { company_id: companyId, ...params } }),
-  dailyReport:    (companyId, date) => api.get(`/api/posting/daily-report`, { params: { company_id: companyId, report_date: date } }),
   seedChart:      ()                => api.post(`/api/posting/seed-chart`),
   chartOfAccounts:(level)           => api.get(`/api/posting/chart-of-accounts`, { params: { level } }),
   review:         (entryId, data)   => api.patch(`/api/posting/journal/${entryId}/review`, data),
@@ -77,6 +76,27 @@ export const posting = {
     api.get(`/api/posting/journal-stats`, { params: { company_id: companyId, ...params } }),
   trialBalance:   (companyId, params) =>
     api.get(`/api/posting/trial-balance`, { params: { company_id: companyId, ...params } }),
+  trialBalanceExport: (companyId, params) => {
+    const base  = api.defaults.baseURL || ''
+    const token = localStorage.getItem('token')
+    const qs    = new URLSearchParams({ company_id: companyId, ...params }).toString()
+    return fetch(`${base}/api/posting/trial-balance/export?${qs}`,
+      { headers: { Authorization: `Bearer ${token}` } })
+      .then(async r => {
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}))
+          throw new Error(err.detail || 'Ошибка экспорта')
+        }
+        return r.blob()
+      })
+      .then(blob => {
+        const link = document.createElement('a')
+        link.href  = URL.createObjectURL(blob)
+        link.download = 'ОСВ.xlsx'
+        link.click()
+        URL.revokeObjectURL(link.href)
+      })
+  },
 }
 
 export const documents = {
@@ -101,6 +121,26 @@ export const documents = {
         const link = document.createElement('a')
         link.href  = URL.createObjectURL(blob)
         link.download = 'Документы_для_1С.xlsx'
+        link.click()
+        URL.revokeObjectURL(link.href)
+      })
+  },
+  exportCounterparties: (companyId) => {
+    const base  = api.defaults.baseURL || ''
+    const token = localStorage.getItem('token')
+    const url   = `${base}/api/documents/${companyId}/export-counterparties`
+    return fetch(url, { headers: { Authorization: `Bearer ${token}` } })
+      .then(async r => {
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}))
+          throw new Error(err.detail || 'Ошибка экспорта')
+        }
+        return r.blob()
+      })
+      .then(blob => {
+        const link = document.createElement('a')
+        link.href  = URL.createObjectURL(blob)
+        link.download = 'Контрагенты_для_1С.xlsx'
         link.click()
         URL.revokeObjectURL(link.href)
       })

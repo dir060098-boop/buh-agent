@@ -618,6 +618,123 @@ def trial_balance(
     }
 
 
+# ── ОСВ: экспорт в Excel ──────────────────────────────────────────────────
+@router.get("/trial-balance/export")
+def trial_balance_export(
+    company_id: int,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    scope: Optional[str] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """ОСВ в Excel — тот же расчёт, что и на экране."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    from fastapi.responses import StreamingResponse
+    from datetime import datetime as _dt
+    import io as _io
+
+    data = trial_balance(company_id, date_from, date_to, scope, db, current_user)
+    company = db.query(Company).filter(Company.id == company_id).first()
+    company_name = company.name if company else f"Компания #{company_id}"
+
+    SCOPE_RU = {"official": "официальный контур", "internal": "внутренний контур"}
+    period_str = f"{date_from or '…'} — {date_to or '…'}"
+    scope_str = f" · {SCOPE_RU[scope]}" if scope in SCOPE_RU else ""
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "ОСВ"
+
+    hdr_fill  = PatternFill("solid", fgColor="1A56DB")
+    hdr_font  = Font(name="Arial", bold=True, color="FFFFFF", size=10)
+    hdr_aln   = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    sub_fill  = PatternFill("solid", fgColor="EEF2FF")
+    cell_font = Font(name="Arial", size=10)
+    total_font = Font(name="Arial", bold=True, size=10)
+    total_fill = PatternFill("solid", fgColor="DBEAFE")
+    thin      = Side(style="thin", color="CCCCCC")
+    border    = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    ws.merge_cells("A1:H1")
+    ws["A1"] = f"{company_name} — Оборотно-сальдовая ведомость · {period_str}{scope_str}"
+    ws["A1"].font = Font(name="Arial", bold=True, size=12)
+    ws.row_dimensions[1].height = 22
+
+    ws.merge_cells("A2:H2")
+    balanced_str = "" if data["balanced"] else " · ⚠ ОБОРОТЫ ДТ ≠ КТ — проверьте проводки"
+    ws["A2"] = f"Сформировано: {_dt.now().strftime('%d.%m.%Y %H:%M')} · в сомах (KGS){balanced_str}"
+    ws["A2"].font = Font(name="Arial", size=9,
+                         color="CC0000" if not data["balanced"] else "888888")
+
+    # Двухуровневая шапка
+    ws.merge_cells("A3:B3"); ws.merge_cells("C3:D3")
+    ws.merge_cells("E3:F3"); ws.merge_cells("G3:H3")
+    for rng, title in [("A3", "Счёт"), ("C3", "Сальдо начальное"),
+                       ("E3", "Обороты за период"), ("G3", "Сальдо конечное")]:
+        c = ws[rng]
+        c.value = title
+        c.font, c.fill, c.alignment = hdr_font, hdr_fill, hdr_aln
+    sub_headers = ["Код", "Название", "Дт", "Кт", "Дт", "Кт", "Дт", "Кт"]
+    for col, h in enumerate(sub_headers, 1):
+        c = ws.cell(row=4, column=col, value=h)
+        c.font, c.fill, c.alignment, c.border = hdr_font, hdr_fill, hdr_aln, border
+    for row in (3, 4):
+        for col in range(1, 9):
+            ws.cell(row=row, column=col).border = border
+
+    for idx, r in enumerate(data["rows"], 1):
+        row_n = idx + 4
+        vals = [r["account"], r["account_name"],
+                r["opening_debit"], r["opening_credit"],
+                r["period_debit"], r["period_credit"],
+                r["closing_debit"], r["closing_credit"]]
+        fill = sub_fill if idx % 2 == 0 else None
+        for col, val in enumerate(vals, 1):
+            cell = ws.cell(row=row_n, column=col,
+                           value=(val if not (col > 2 and not val) else None))
+            cell.font, cell.border = cell_font, border
+            if fill:
+                cell.fill = fill
+            if col > 2:
+                cell.number_format = '#,##0.00'
+                cell.alignment = Alignment(horizontal="right")
+
+    t = data["totals"]
+    total_row = len(data["rows"]) + 5
+    ws.merge_cells(f"A{total_row}:B{total_row}")
+    ws.cell(total_row, 1, "ИТОГО").alignment = Alignment(horizontal="right")
+    for col, val in enumerate([None, None, t["opening_debit"], t["opening_credit"],
+                               t["period_debit"], t["period_credit"],
+                               t["closing_debit"], t["closing_credit"]], 1):
+        cell = ws.cell(total_row, col)
+        if val is not None:
+            cell.value = val
+            cell.number_format = '#,##0.00'
+            cell.alignment = Alignment(horizontal="right")
+        cell.font, cell.fill, cell.border = total_font, total_fill, border
+
+    for i, w in enumerate([9, 38, 14, 14, 14, 14, 14, 14], 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = "A5"
+
+    buf = _io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    filename = f"osv_{company_id}"
+    if date_from: filename += f"_{date_from}"
+    if date_to:   filename += f"_{date_to}"
+    if scope:     filename += f"_{scope}"
+    filename += ".xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 # ── Список закрытых периодов компании ────────────────────────────────────
 @router.get("/closed-periods")
 def get_closed_periods(
@@ -652,69 +769,6 @@ def get_closed_periods(
         }
         for r in rows
     ]
-
-
-@router.get("/daily-report")
-def get_daily_report(
-    company_id: int,
-    report_date: Optional[str] = None,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    company = db.query(Company).filter(Company.id == company_id, Company.owner_id == current_user.id).first()
-    if not company:
-        raise HTTPException(status_code=403, detail="Нет доступа")
-
-    target_date = date.fromisoformat(report_date) if report_date else date.today()
-
-    rows = db.query(JournalEntry, Document).outerjoin(
-        Document, JournalEntry.document_id == Document.id
-    ).filter(
-        JournalEntry.company_id == company_id,
-        JournalEntry.entry_date == target_date
-    ).all()
-
-    posted = [(e, d) for e, d in rows if e.status == "posted"]
-    needs_review = [(e, d) for e, d in rows if e.status == "needs_review"]
-
-    totals_by_account = {}
-    for e, d in posted:
-        key = f"{e.debit_account} {e.debit_account_name}"
-        amt = float(e.amount_kgs) if e.amount_kgs else float(e.amount)
-        totals_by_account[key] = totals_by_account.get(key, 0) + amt
-
-    def entry_dict(e, d):
-        return {
-            "id": e.id,
-            "doc_number": d.doc_number if d else None,
-            "doc_date": str(d.doc_date)[:10] if d and d.doc_date else None,
-            "counterparty": d.counterparty if d else None,
-            "description": e.description,
-            "debit": f"{e.debit_account} {e.debit_account_name}",
-            "credit": f"{e.credit_account} {e.credit_account_name}",
-            "amount": float(e.amount),
-            "currency": e.currency,
-            "amount_kgs": float(e.amount_kgs) if e.amount_kgs else (float(e.amount) if e.currency == "KGS" else None),
-            "confidence": e.ai_confidence,
-            "reasoning": e.ai_reasoning
-        }
-
-    return {
-        "report_date": str(target_date),
-        "company": company.name,
-        "summary": {
-            "total_entries": len(rows),
-            "posted": len(posted),
-            "needs_review": len(needs_review),
-            "total_amount_kgs": sum(
-                float(e.amount_kgs) if e.amount_kgs else float(e.amount)
-                for e, d in posted if e.currency == "KGS" or e.amount_kgs
-            ),
-        },
-        "posted_entries": [entry_dict(e, d) for e, d in posted],
-        "needs_review": [entry_dict(e, d) for e, d in needs_review],
-        "totals_by_debit_account": totals_by_account
-    }
 
 
 @router.get("/chart-of-accounts")

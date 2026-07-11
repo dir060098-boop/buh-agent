@@ -211,6 +211,9 @@ def _run_migrations():
         "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS scope VARCHAR(20)",
         "ALTER TABLE documents ADD COLUMN IF NOT EXISTS scope VARCHAR(20) DEFAULT 'official'",
         "ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS scope VARCHAR(20) DEFAULT 'official'",
+        # отметка выгрузки в 1С (защита от задвоения при повторном экспорте)
+        "ALTER TABLE documents ADD COLUMN IF NOT EXISTS exported_1c_at TIMESTAMP",
+        "ALTER TABLE bank_transactions ADD COLUMN IF NOT EXISTS exported_1c_at TIMESTAMP",
         # esf — linked_document_id
         "ALTER TABLE esf ADD COLUMN IF NOT EXISTS linked_document_id INTEGER REFERENCES documents(id)",
         # chat_messages — новая таблица (create_all создаст, но добавим IF NOT EXISTS на случай)

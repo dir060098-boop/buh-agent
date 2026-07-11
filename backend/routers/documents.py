@@ -38,6 +38,7 @@ def doc_to_dict(doc):
         "posting_status": doc.posting_status or "pending",
         "operation_type": doc.operation_type,
         "scope": doc.scope or "official",
+        "exported_1c_at": doc.exported_1c_at.isoformat() if doc.exported_1c_at else None,
         "ai_confidence": doc.ai_confidence,
         "ai_summary": doc.ai_summary,
         "file_path": doc.file_path,
@@ -98,6 +99,7 @@ def export_1c(
     posting_status: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
+    only_new: bool = Query(True, description="Только не выгружавшиеся в 1С ранее"),
     db: Session = Depends(get_db),
     company = Depends(require_company),
 ):
@@ -121,6 +123,9 @@ def export_1c(
     # ЗАЩИТА КОНТУРА: в 1С уходит только официальное (NULL = official для старых)
     q = q.filter(or_(models.Document.scope == "official",
                      models.Document.scope.is_(None)))
+    # ЗАЩИТА ОТ ЗАДВОЕНИЯ: по умолчанию только не выгружавшиеся ранее
+    if only_new:
+        q = q.filter(models.Document.exported_1c_at.is_(None))
     if search:
         q = q.filter(or_(
             models.Document.counterparty.ilike(f"%{search}%"),
@@ -138,7 +143,8 @@ def export_1c(
 
     docs = q.order_by(models.Document.doc_date).all()
     if not docs:
-        raise HTTPException(404, "Нет документов для выгрузки за указанный период")
+        raise HTTPException(404, "Все документы уже выгружены в 1С — новых нет"
+                            if only_new else "Нет документов для выгрузки за указанный период")
 
     wb = Workbook()
     ws = wb.active
@@ -277,10 +283,134 @@ def export_1c(
     if date_to:   filename += f"_до{date_to}"
     filename += ".xlsx"
 
+    # Штампуем выгрузку — повторный экспорт «только новых» их не захватит
+    now = _dt.utcnow()
+    for d in docs:
+        d.exported_1c_at = now
+    db.commit()
+
     return StreamingResponse(
         buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/{company_id}/export-counterparties")
+def export_counterparties(
+    company_id: int,
+    db: Session = Depends(get_db),
+    company = Depends(require_company),
+):
+    """
+    Справочник контрагентов, накопленный из документов, банка и ЭСФ —
+    Excel для заведения в справочник «Контрагенты» 1С одним заходом.
+    Дедупликация: по ИНН, без ИНН — по нормализованному имени.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    from fastapi.responses import StreamingResponse
+    from datetime import datetime as _dt
+    import io as _io
+
+    comp = db.query(models.Company).filter(models.Company.id == company_id).first()
+    company_name = comp.name if comp else f"Компания #{company_id}"
+    own_inn = (comp.inn or "").strip() if comp else ""
+
+    # {ключ: {"name", "inn", "sources": set, "ops": int}}
+    registry = {}
+
+    def _norm(s):
+        return " ".join(str(s or "").split()).upper()
+
+    def add(name, inn, source):
+        name = " ".join(str(name or "").split())
+        inn = str(inn or "").strip()
+        if not name and not inn:
+            return
+        if inn and inn == own_inn:
+            return  # сама компания — не контрагент
+        key = f"inn:{inn}" if inn else f"name:{_norm(name)}"
+        if key not in registry:
+            registry[key] = {"name": name, "inn": inn, "sources": set(), "ops": 0}
+        r = registry[key]
+        r["sources"].add(source)
+        r["ops"] += 1
+        # Самое длинное имя обычно самое полное
+        if name and len(name) > len(r["name"]):
+            r["name"] = name
+
+    for d in db.query(models.Document).filter(models.Document.company_id == company_id).all():
+        add(d.counterparty, d.counterparty_inn, "Документы")
+
+    acc_ids = [a.id for a in db.query(models.BankAccount).filter(
+        models.BankAccount.company_id == company_id).all()]
+    if acc_ids:
+        for t in db.query(models.BankTransaction).filter(
+                models.BankTransaction.account_id.in_(acc_ids)).all():
+            add(t.counterparty, t.counterparty_inn, "Банк")
+
+    for e in db.query(models.ESF).filter(models.ESF.company_id == company_id).all():
+        add(e.supplier_name, e.supplier_inn, "ЭСФ")
+        add(e.buyer_name, e.buyer_inn, "ЭСФ")
+
+    if not registry:
+        raise HTTPException(404, "Контрагентов пока нет — они накапливаются из документов, банка и ЭСФ")
+
+    rows = sorted(registry.values(), key=lambda r: (-r["ops"], r["name"]))
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Контрагенты"
+
+    hdr_fill  = PatternFill("solid", fgColor="1A56DB")
+    hdr_font  = Font(name="Arial", bold=True, color="FFFFFF", size=10)
+    hdr_aln   = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    sub_fill  = PatternFill("solid", fgColor="EEF2FF")
+    cell_font = Font(name="Arial", size=10)
+    thin      = Side(style="thin", color="CCCCCC")
+    border    = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    ws.merge_cells("A1:E1")
+    ws["A1"] = f"{company_name} — Контрагенты для загрузки в 1С"
+    ws["A1"].font = Font(name="Arial", bold=True, size=12)
+    ws.row_dimensions[1].height = 22
+
+    ws.merge_cells("A2:E2")
+    ws["A2"] = f"Сформировано: {_dt.now().strftime('%d.%m.%Y %H:%M')} · контрагентов: {len(rows)}"
+    ws["A2"].font = Font(name="Arial", size=9, color="888888")
+
+    headers = ["№", "Наименование", "ИНН", "Источники", "Операций"]
+    for col, h in enumerate(headers, 1):
+        c = ws.cell(row=3, column=col, value=h)
+        c.font, c.fill, c.alignment, c.border = hdr_font, hdr_fill, hdr_aln, border
+    ws.row_dimensions[3].height = 26
+
+    for idx, r in enumerate(rows, 1):
+        row_n = idx + 3
+        data = [idx, r["name"] or "—", r["inn"] or "",
+                ", ".join(sorted(r["sources"])), r["ops"]]
+        fill = sub_fill if idx % 2 == 0 else None
+        for col, val in enumerate(data, 1):
+            cell = ws.cell(row=row_n, column=col, value=val)
+            cell.font, cell.border = cell_font, border
+            if fill:
+                cell.fill = fill
+            if col in (1, 5):
+                cell.alignment = Alignment(horizontal="center")
+
+    for i, w in enumerate([5, 45, 18, 22, 10], 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = "A4"
+
+    buf = _io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="counterparties_{company_id}.xlsx"'},
     )
 
 

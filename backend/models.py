@@ -66,6 +66,7 @@ class Document(Base):
     posting_status = Column(String, default="pending")  # pending / posted / needs_review
     operation_type = Column(String)
     scope = Column(String, default="official")   # official | internal — контур учёта
+    exported_1c_at = Column(DateTime, nullable=True)  # когда выгружен в 1С (защита от задвоения)
     status = Column(String, default="pending")
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     company = relationship("Company", back_populates="documents")
@@ -125,6 +126,7 @@ class BankTransaction(Base):
     linked_document_id = Column(Integer, ForeignKey("documents.id"), nullable=True)
     linked_esf_id = Column(Integer, ForeignKey("esf.id"), nullable=True)
     scope = Column(String, nullable=True)          # NULL = наследует default_scope счёта
+    exported_1c_at = Column(DateTime, nullable=True)  # когда выгружена в 1С
     status = Column(String, default="unmatched")   # unmatched / matched
     journal_entry_id = Column(Integer, ForeignKey("journal_entries.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

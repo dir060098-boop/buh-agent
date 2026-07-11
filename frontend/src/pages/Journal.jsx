@@ -192,7 +192,6 @@ export default function Journal(){
   const navigate=useNavigate()
   const [tab,setTab]=useState('journal')
   const [entries,setEntries]=useState([])
-  const [report,setReport]=useState(null)
   // ОСВ
   const [osv,setOsv]=useState(null)
   const [osvLoading,setOsvLoading]=useState(false)
@@ -205,7 +204,6 @@ export default function Journal(){
   const [filterDateFrom,setFilterDateFrom]=useState('')
   const [filterDateTo,setFilterDateTo]=useState('')
   const [filterCounterparty,setFilterCounterparty]=useState('')
-  const [reportDate,setReportDate]=useState(new Date().toISOString().slice(0,10))
   const [expanded,setExpanded]=useState(null)
   const [showFilters,setShowFilters]=useState(false)
   const [reviewEntry,setReviewEntry]=useState(null)
@@ -263,7 +261,6 @@ export default function Journal(){
   },[companyId])
 
   useEffect(()=>{loadJournal()},[loadJournal])
-  useEffect(()=>{if(tab==='report')loadReport()},[tab,reportDate])
 
   async function loadOsv(){
     setOsvLoading(true)
@@ -279,11 +276,6 @@ export default function Journal(){
   }
   useEffect(()=>{if(tab==='osv')loadOsv()},[tab,osvScope])
 
-  async function loadReport(){
-    setLoading(true)
-    try{const res=await posting.dailyReport(companyId,reportDate);setReport(res.data)}
-    catch(e){console.error(e)}finally{setLoading(false)}
-  }
   // Предпросмотр: сколько проводок будет закрыто
   async function loadCpPreview(year,month){
     setCpPreview(null)
@@ -566,6 +558,19 @@ export default function Journal(){
               <button onClick={loadOsv} style={{background:'var(--accent)',color:'#fff',border:'none',padding:'8px 16px',borderRadius:'var(--radius-sm)',fontSize:13,fontWeight:700,cursor:'pointer',fontFamily:'inherit',boxShadow:'var(--shadow-sm)'}}>
                 Сформировать
               </button>
+              <button onClick={()=>{
+                const params={}
+                if(osvFrom)params.date_from=osvFrom
+                if(osvTo)params.date_to=osvTo
+                if(osvScope)params.scope=osvScope
+                posting.trialBalanceExport(companyId,params)
+                  .then(()=>showToast('ОСВ выгружена в Excel'))
+                  .catch(e=>showToast(e.message,'error'))
+              }}
+                disabled={!osv||!osv.rows||osv.rows.length===0}
+                style={{background:'var(--surface)',color:'var(--success)',border:'1px solid var(--border)',padding:'8px 16px',borderRadius:'var(--radius-sm)',fontSize:13,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}}>
+                📥 Excel
+              </button>
               {osv&&!osv.balanced&&(
                 <span style={{fontSize:12,color:'var(--error)',fontWeight:700,background:'var(--error-light)',padding:'4px 10px',borderRadius:'var(--radius-sm)'}}>
                   ⚠️ Обороты Дт ≠ Кт — проверьте проводки
@@ -623,73 +628,6 @@ export default function Journal(){
                     </tr>
                   </tfoot>
                 </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── ОТЧЁТ ЗА ДЕНЬ (legacy, вкладка скрыта) ── */}
-        {tab==='report'&&(
-          <div>
-            <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16}}>
-              <input type="date" value={reportDate} onChange={e=>setReportDate(e.target.value)} style={INP2}/>
-              <button onClick={loadReport} style={{background:'var(--accent)',color:'#fff',border:'none',padding:'8px 16px',borderRadius:'var(--radius-sm)',fontSize:13,fontWeight:700,cursor:'pointer',fontFamily:'inherit',boxShadow:'var(--shadow-sm)'}}>Показать</button>
-            </div>
-            {loading?<div style={{textAlign:'center',padding:40,color:'var(--text3)'}}>Загрузка...</div>:report&&(
-              <div>
-                <div style={{background:'var(--surface)',borderRadius:'var(--radius-lg)',border:'1px solid var(--border)',padding:'16px 18px',marginBottom:12,boxShadow:'var(--shadow-sm)'}}>
-                  <div style={{fontWeight:800,fontSize:15,marginBottom:14,color:'var(--text)'}}>📊 {report.report_date} · {report.company}</div>
-                  <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>
-                    {[['Всего',report.summary?.total_entries,'var(--text)'],['Проведено',report.summary?.posted,'var(--success)'],['На проверке',report.summary?.needs_review,'var(--warn)'],['Итого KGS',fmt(report.summary?.total_amount_kgs),'var(--accent)']].map(([l,v,c])=>(
-                      <div key={l} style={{textAlign:'center'}}><div style={{fontSize:20,fontWeight:800,color:c,fontVariantNumeric:'tabular-nums'}}>{v??0}</div><div style={{fontSize:10,color:'var(--text3)',fontWeight:600,textTransform:'uppercase',marginTop:2}}>{l}</div></div>
-                    ))}
-                  </div>
-                </div>
-                {report.needs_review?.length>0&&(
-                  <div style={{background:'var(--warn-light)',border:'1px solid var(--warn)',borderRadius:'var(--radius-lg)',overflow:'hidden',marginBottom:12}}>
-                    <div style={{padding:'10px 16px',borderBottom:'1px solid var(--warn)',fontWeight:700,fontSize:13,color:'var(--warn)'}}>⚠️ Требуют проверки ({report.needs_review.length})</div>
-                    {report.needs_review.map(e=>(
-                      <div key={e.id} style={{padding:'12px 16px',borderBottom:'1px solid var(--border)',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                        <div><div style={{fontSize:12,fontWeight:700,color:'var(--text)',marginBottom:2}}>{e.doc_number?`№${e.doc_number}`:'—'} · {e.counterparty||'—'}</div><div style={{fontSize:11,color:'var(--text2)'}}>{e.description}</div></div>
-                        <div style={{fontSize:13,fontWeight:700,color:'var(--text)',flexShrink:0,marginLeft:12,fontVariantNumeric:'tabular-nums'}}>{fmt(e.amount,e.currency)}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {Object.keys(report.totals_by_debit_account||{}).length>0&&(
-                  <div style={{background:'var(--surface)',borderRadius:'var(--radius-lg)',border:'1px solid var(--border)',overflow:'hidden',marginBottom:12,boxShadow:'var(--shadow-sm)'}}>
-                    <div style={{padding:'10px 16px',borderBottom:'1px solid var(--border)',fontWeight:700,fontSize:13,color:'var(--text)'}}>Обороты по дебетовым счетам</div>
-                    {Object.entries(report.totals_by_debit_account).map(([acc,amt])=>(
-                      <div key={acc} style={{display:'flex',justifyContent:'space-between',padding:'9px 16px',borderBottom:'1px solid var(--border)',fontSize:13}}><span style={{color:'var(--text2)'}}>{acc}</span><span style={{fontWeight:700,color:'var(--text)',fontVariantNumeric:'tabular-nums'}}>{fmt(amt)} KGS</span></div>
-                    ))}
-                  </div>
-                )}
-                {report.posted_entries?.length>0&&(
-                  <div style={{background:'var(--surface)',borderRadius:'var(--radius-lg)',border:'1px solid var(--border)',overflow:'hidden',boxShadow:'var(--shadow-sm)'}}>
-                    <div style={{padding:'10px 16px',borderBottom:'1px solid var(--border)',fontWeight:700,fontSize:13,color:'var(--text)'}}>✅ Проведённые операции ({report.posted_entries.length})</div>
-                    {report.posted_entries.map(e=>(
-                      <div key={e.id} style={{padding:'11px 16px',borderBottom:'1px solid var(--border)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:12}}>
-                        <div style={{flex:1}}>
-                          <div style={{display:'flex',gap:8,marginBottom:3,flexWrap:'wrap'}}>
-                            {e.doc_number&&<span style={{fontSize:11,fontWeight:700,color:'var(--accent)'}}>№{e.doc_number}</span>}
-                            {e.counterparty&&<span style={{fontSize:11,color:'var(--text2)'}}>{e.counterparty}</span>}
-                          </div>
-                          <div style={{fontSize:12,color:'var(--text)',marginBottom:4}}>{e.description}</div>
-                          <div style={{fontSize:11}}>
-                            <span style={{color:'var(--accent)',background:'var(--accent-light)',padding:'1px 6px',borderRadius:'var(--radius-sm)',fontWeight:700}}>Дт {e.debit?.split(' ')[0]}</span>
-                            <span style={{color:'var(--text3)',margin:'0 5px'}}>→</span>
-                            <span style={{color:'var(--success)',background:'var(--success-light)',padding:'1px 6px',borderRadius:'var(--radius-sm)',fontWeight:700}}>Кт {e.credit?.split(' ')[0]}</span>
-                          </div>
-                        </div>
-                        <div style={{textAlign:'right',flexShrink:0}}>
-                          <div style={{fontSize:13,fontWeight:700,color:'var(--text)',fontVariantNumeric:'tabular-nums'}}>{fmt(e.amount,e.currency)}</div>
-                          {e.currency!=='KGS'&&e.amount_kgs&&<div style={{fontSize:11,color:'var(--accent)'}}>≈{fmt(e.amount_kgs)} KGS</div>}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {report.summary?.total_entries===0&&<div style={{textAlign:'center',padding:40,background:'var(--surface)',borderRadius:'var(--radius-lg)',border:'1px solid var(--border)',color:'var(--text3)'}}>За этот день операций нет</div>}
               </div>
             )}
           </div>

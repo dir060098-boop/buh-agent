@@ -79,6 +79,7 @@ export default function Bank() {
   const [importing, setImporting]     = useState(false)
   const [autoPosting, setAutoPosting] = useState(false)
   const [autoPostResult, setAutoPostResult] = useState(null)
+  const [exportOnlyNew, setExportOnlyNew] = useState(true)
   const { toasts, showToast, removeToast } = useToast()
   const [dragOver, setDragOver]       = useState(false)
   const [confirmState, setConfirmState] = useState(null)
@@ -316,13 +317,19 @@ export default function Bank() {
             style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: accounts.length ? 'pointer' : 'not-allowed', fontFamily: 'inherit', color: 'var(--text)', opacity: accounts.length ? 1 : 0.5 }}>
             📥 Загрузить выписку
           </button>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--text3)', cursor: 'pointer', whiteSpace: 'nowrap' }}
+            title="Выгружать только операции, которые ещё не выгружались в 1С — защита от задвоения">
+            <input type="checkbox" checked={exportOnlyNew} onChange={e => setExportOnlyNew(e.target.checked)}
+              style={{ width: 14, height: 14, accentColor: 'var(--accent)' }} />
+            только новые
+          </label>
           <button onClick={() => {
-            const params = {}
+            const params = { only_new: exportOnlyNew }
             if (activeAcc) params.account_id = activeAcc
             if (dateFrom)  params.date_from  = dateFrom
             if (dateTo)    params.date_to    = dateTo
             bank.export1c(companyId, params)
-              .then(() => showToast('Файл kl_to_1c.txt выгружен — загрузите его в 1С через «Обмен с банком»'))
+              .then(() => { showToast('Файл kl_to_1c.txt выгружен — загрузите его в 1С через «Обмен с банком»'); load() })
               .catch(e => showToast(e.message, 'error'))
           }}
             disabled={accounts.filter(a => !a.is_cash).length === 0}

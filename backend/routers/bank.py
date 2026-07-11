@@ -98,6 +98,7 @@ def tx_to_dict(tx) -> dict:
         "counterparty_inn": tx.counterparty_inn,
         "doc_number": tx.doc_number,
         "scope": tx.scope,   # None = наследует default_scope счёта
+        "exported_1c_at": tx.exported_1c_at.isoformat() if tx.exported_1c_at else None,
         "status": tx.status,
         "linked_document_id": tx.linked_document_id,
         "linked_esf_id": getattr(tx, "linked_esf_id", None),
@@ -461,6 +462,7 @@ def export_1c(
     account_id: Optional[int] = Query(None),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
+    only_new: bool = Query(True, description="Только не выгружавшиеся в 1С ранее"),
     db: Session = Depends(get_db),
     company = Depends(require_company),
 ):
@@ -516,6 +518,7 @@ def export_1c(
 
     sections = []       # строки секций (собираем после шапки)
     total_docs = 0
+    exported_txs = []   # для штампа exported_1c_at
 
     for acc in accs:
         acc_number = _clean(acc.account_number)
@@ -530,8 +533,12 @@ def export_1c(
         # ЗАЩИТА КОНТУРА: в 1С уходит только официальное.
         # Эффективный scope операции = свой либо унаследованный от счёта.
         txs = [t for t in txs if (t.scope or acc_scope) == "official"]
+        # ЗАЩИТА ОТ ЗАДВОЕНИЯ: по умолчанию только не выгружавшиеся ранее
+        if only_new:
+            txs = [t for t in txs if not t.exported_1c_at]
         if not txs:
             continue
+        exported_txs += txs
 
         all_dates += [t.date for t in txs if t.date]
 
@@ -593,7 +600,8 @@ def export_1c(
             total_docs += 1
 
     if total_docs == 0:
-        raise HTTPException(404, "Нет операций для выгрузки за указанный период")
+        raise HTTPException(404, "Все операции уже выгружены в 1С — новых нет"
+                            if only_new else "Нет операций для выгрузки за указанный период")
 
     # Шапка: период и перечень счетов
     lines.append(f"ДатаНачала={_d(dt_from or min(all_dates))}")
@@ -611,6 +619,12 @@ def export_1c(
     if date_from: filename += f"_{date_from}"
     if date_to:   filename += f"_{date_to}"
     filename += ".txt"
+
+    # Штампуем выгрузку — повторный экспорт «только новых» их не захватит
+    stamp = datetime.utcnow()
+    for t in exported_txs:
+        t.exported_1c_at = stamp
+    db.commit()
 
     return _Response(
         content=content,

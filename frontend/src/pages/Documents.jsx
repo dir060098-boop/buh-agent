@@ -74,6 +74,7 @@ export default function Documents() {
   const [docType, setDocType] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo]     = useState('')
+  const [exportOnlyNew, setExportOnlyNew] = useState(true)
   const { toasts, showToast, removeToast } = useToast()
 
   const load = useCallback(() => {
@@ -135,21 +136,36 @@ export default function Documents() {
       {/* Шапка модуля */}
       <div style={{ background: 'var(--surface)', borderBottom: '1px solid var(--border)', padding: '10px 24px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', boxShadow: 'var(--shadow-sm)' }}>
         <div style={{ fontWeight: 800, fontSize: 15, color: 'var(--text)' }}>🗂 Архив документов</div>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12, color: 'var(--text3)', cursor: 'pointer', whiteSpace: 'nowrap' }}
+            title="Выгружать только документы, которые ещё не выгружались в 1С — защита от задвоения">
+            <input type="checkbox" checked={exportOnlyNew} onChange={e => setExportOnlyNew(e.target.checked)}
+              style={{ width: 14, height: 14, accentColor: 'var(--accent)' }} />
+            только новые
+          </label>
           <button onClick={() => {
-            const params = {}
+            const params = { only_new: exportOnlyNew }
             if (search)   params.search    = search
             if (docType)  params.doc_type  = docType
             if (dateFrom) params.date_from = dateFrom
             if (dateTo)   params.date_to   = dateTo
             documents.export1c(companyId, params)
-              .then(() => showToast('Файл выгружен — загрузите его в 1С через «Загрузка данных из табличного документа»'))
+              .then(() => { showToast('Файл выгружен — загрузите его в 1С через «Загрузка данных из табличного документа»'); load() })
               .catch(e => showToast(e.message, 'error'))
           }}
             disabled={docs.length === 0}
             title="Выгрузка документов в Excel под универсальную загрузку в 1С:Бухгалтерия 8.3"
             style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '7px 14px', fontSize: 13, fontWeight: 700, cursor: docs.length ? 'pointer' : 'not-allowed', fontFamily: 'inherit', color: 'var(--accent)', opacity: docs.length ? 1 : 0.5 }}>
             📤 Экспорт в 1С
+          </button>
+          <button onClick={() => {
+            documents.exportCounterparties(companyId)
+              .then(() => showToast('Справочник контрагентов выгружен'))
+              .catch(e => showToast(e.message, 'error'))
+          }}
+            title="Все контрагенты из документов, банка и ЭСФ — для заведения в справочник 1С"
+            style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', padding: '7px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit', color: 'var(--text2)' }}>
+            👥 Контрагенты
           </button>
           <button onClick={() => navigate(`/company/${companyId}/scanner`)}
             style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', padding: '7px 16px', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
@@ -215,6 +231,12 @@ export default function Documents() {
                     <span title="Внутренний учёт — не попадает в выгрузки для 1С"
                       style={{ fontSize: 10, color: 'var(--warn)', background: 'var(--warn-light)', fontWeight: 800, padding: '2px 6px', borderRadius: 10, whiteSpace: 'nowrap' }}>
                       🔒
+                    </span>
+                  )}
+                  {doc.exported_1c_at && (
+                    <span title={`Выгружен в 1С: ${doc.exported_1c_at.slice(0, 10)}`}
+                      style={{ fontSize: 9, color: 'var(--success)', background: 'var(--success-light)', fontWeight: 800, padding: '2px 6px', borderRadius: 10, whiteSpace: 'nowrap' }}>
+                      →1С
                     </span>
                   )}
                 </div>
