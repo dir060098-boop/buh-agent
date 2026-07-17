@@ -68,6 +68,11 @@ export default function Login() {
               {loading ? 'Вхожу...' : 'Войти'}
             </button>
           </form>
+          <div style={{textAlign:'center',marginTop:14}}>
+            <a href="/help" style={{fontSize:13,color:'var(--accent)',fontWeight:600,textDecoration:'none'}}>
+              ❓ Что это за приложение и как с ним работать
+            </a>
+          </div>
         </div>
       </div>
     </div>

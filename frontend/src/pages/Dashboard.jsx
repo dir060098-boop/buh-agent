@@ -135,6 +135,11 @@ export default function Dashboard() {
           Бух<span style={{ color:'var(--accent)' }}>Агент</span>
         </div>
         <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+          <button onClick={() => navigate('/help')}
+            title="Справка: как работать с приложением"
+            style={{ background:'var(--surface2)', border:'1px solid var(--border)', borderRadius:'var(--radius-sm)', padding:'5px 12px', fontSize:13, fontWeight:700, color:'var(--accent)', cursor:'pointer', fontFamily:'inherit' }}>
+            ❓ Справка
+          </button>
           <button onClick={() => setTheme(t => t === 'light' ? 'dark' : 'light')}
             style={{ background:'var(--surface2)', border:'1px solid var(--border)', borderRadius:'var(--radius-sm)', padding:'5px 10px', fontSize:16, color:'var(--text2)', cursor:'pointer' }}>
             {theme === 'light' ? '🌙' : '☀️'}

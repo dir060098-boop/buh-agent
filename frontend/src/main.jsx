@@ -13,6 +13,7 @@ import Salary from './pages/Salary'
 import ESF from './pages/ESF'
 import Nomenclature from './pages/Nomenclature'
 import Communications from './pages/Communications'
+import Help from './pages/Help'
 import './index.css'
 
 const PrivateRoute = ({ children }) => {
@@ -23,6 +24,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <BrowserRouter>
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/help" element={<Help />} />
       <Route path="/" element={<PrivateRoute><Dashboard /></PrivateRoute>} />
       <Route path="/company/:id" element={<PrivateRoute><CompanyMenu /></PrivateRoute>} />
       <Route path="/company/:companyId/scanner" element={<PrivateRoute><Scanner /></PrivateRoute>} />
