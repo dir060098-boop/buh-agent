@@ -43,6 +43,59 @@ class DuplicatePostingError(Exception):
     def __init__(self, entry: 'JournalEntry'):
         self.entry = entry
 
+
+def try_rule_posting(doc: Document, db: Session) -> Optional[dict]:
+    """
+    Правила-first: пытается разнести документ по правилам из БД без вызова AI.
+    Возвращает dict в формате AI-ответа либо None (→ fallback на Claude).
+
+    Логика: тип документа совпадает (или правило без типа) + хотя бы одно
+    ключевое слово найдено в тексте документа. Побеждает правило с максимальным
+    priority; при равенстве — с бОльшим числом совпавших слов.
+    """
+    doc_type = doc.doc_type.value if hasattr(doc.doc_type, "value") else str(doc.doc_type or "")
+    text = " ".join(filter(None, [
+        doc.operation_type, doc.ai_summary, doc.counterparty,
+    ])).lower()
+    if not text.strip():
+        return None
+
+    rules = db.query(PostingRule).filter(PostingRule.is_active == True).all()  # noqa: E712
+    best, best_key = None, (-1, -1)
+    for r in rules:
+        if r.document_type and r.document_type not in ("", "any", doc_type):
+            continue
+        keywords = [str(k).lower() for k in (r.operation_keywords or []) if k]
+        if not keywords:
+            continue
+        hits = sum(1 for k in keywords if k in text)
+        if hits == 0:
+            continue
+        key = (r.priority or 0, hits)
+        if key > best_key:
+            best, best_key = r, key
+
+    if not best:
+        return None
+
+    def _acc_name(code):
+        a = db.query(ChartOfAccount).filter(ChartOfAccount.code == code).first()
+        return a.name if a else ""
+
+    return {
+        "debit_account":       best.debit_account,
+        "credit_account":      best.credit_account,
+        "debit_account_name":  _acc_name(best.debit_account),
+        "credit_account_name": _acc_name(best.credit_account),
+        "amount":              doc.amount or 0,
+        "currency":            doc.currency or "KGS",
+        "description":         (best.description or best.rule_name or "")[:255],
+        "confidence":          85,
+        "reasoning":           f"Правило разноски: {best.rule_name}",
+        "needs_review":        False,
+        "_rule_id":            best.id,
+    }
+
 def post_document_with_ai(doc: Document, db: Session) -> JournalEntry:
     # ── ЗАЩИТА ОТ ПОВТОРНОЙ РАЗНОСКИ ──────────────────────────
     # Проверка 1: уже есть проводка для этого document_id
@@ -70,6 +123,12 @@ def post_document_with_ai(doc: Document, db: Session) -> JournalEntry:
         if existing_by_attrs:
             raise DuplicatePostingError(existing_by_attrs)
     # ── КОНЕЦ ЗАЩИТЫ ──────────────────────────────────────────
+
+    # ── ПРАВИЛА-FIRST: пробуем без AI (быстро и бесплатно) ────
+    rule_result = try_rule_posting(doc, db)
+    if rule_result is not None:
+        rule_id = rule_result.pop("_rule_id", None)
+        return _create_entry_from_result(doc, rule_result, db, rule_id=rule_id)
 
     chart_summary = get_chart_summary(db)
     rules_summary = get_posting_rules_summary(db)
@@ -132,6 +191,12 @@ def post_document_with_ai(doc: Document, db: Session) -> JournalEntry:
             "confidence": 0, "reasoning": "Ошибка парсинга", "needs_review": True
         }
 
+    return _create_entry_from_result(doc, result, db)
+
+
+def _create_entry_from_result(doc: Document, result: dict, db: Session,
+                              rule_id: Optional[int] = None) -> JournalEntry:
+    """Создаёт проводку из результата разноски (правило или AI)."""
     doc.debit_account = result.get("debit_account")
     doc.credit_account = result.get("credit_account")
     doc.ai_confidence = result.get("confidence", 0)
@@ -146,6 +211,7 @@ def post_document_with_ai(doc: Document, db: Session) -> JournalEntry:
     entry = JournalEntry(
         company_id=doc.company_id,
         document_id=doc.id,
+        posting_rule_id=rule_id,
         scope=getattr(doc, "scope", None) or "official",
         entry_date=doc.doc_date.date() if doc.doc_date else date.today(),
         debit_account=result.get("debit_account"),

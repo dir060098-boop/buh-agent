@@ -278,7 +278,8 @@ export const salary = {
 export const deadlines = {
   list: (companyId) => api.get(`/api/deadlines/${companyId}`),
   create: (companyId, data) => api.post(`/api/deadlines/${companyId}`, data),
-  done: (id) => api.patch(`/api/deadlines/${id}/done`),
+  done: (id, notes) => api.patch(`/api/deadlines/${id}/done`, { notes: notes || '' }),
+  calendarAll: (daysAhead) => api.get(`/api/deadlines/calendar/all`, { params: { days_ahead: daysAhead || 30 } }),
 }
 
 export const communications = {

@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { companies, posting, auth } from '../api/client'
+import { companies, posting, auth, deadlines as deadlinesApi } from '../api/client'
 import { useNavigate } from 'react-router-dom'
 import { useToast } from '../hooks/useToast'
 import Toast from '../components/Toast'
@@ -46,14 +46,25 @@ export default function Dashboard() {
     localStorage.setItem('theme', theme)
   }, [theme])
 
+  const [calendar, setCalendar] = useState(null)
+
   const load = useCallback(async () => {
     setLoading(true)
     await Promise.all([
       companies.summary().then(r => setSummary(r.data)).catch(() => {}),
-      auth.me().then(r => setUser(r.data)).catch(() => {})
+      auth.me().then(r => setUser(r.data)).catch(() => {}),
+      deadlinesApi.calendarAll(30).then(r => setCalendar(r.data)).catch(() => {})
     ])
     setLoading(false)
   }, [])
+
+  async function handleCalendarDone(id) {
+    try {
+      await deadlinesApi.done(id)
+      const r = await deadlinesApi.calendarAll(30)
+      setCalendar(r.data)
+    } catch(e) { showToast(e.response?.data?.detail || e.message, 'error') }
+  }
 
   useEffect(() => { load() }, [load])
 
@@ -304,6 +315,49 @@ export default function Dashboard() {
                     </div>
                   ))}
                 </div>
+              )}
+
+              {/* Сквозной календарь по всем компаниям */}
+              {calendar && calendar.items.length > 0 && (
+                <>
+                  <div style={{ fontSize:12, fontWeight:700, color:'var(--text3)', textTransform:'uppercase', letterSpacing:'0.08em', margin:'18px 0 10px', display:'flex', alignItems:'center', gap:8 }}>
+                    📅 Сроки — все компании
+                    {calendar.overdue_count > 0 && (
+                      <span style={{ background:'var(--error-light)', color:'var(--error)', padding:'2px 8px', borderRadius:10, fontSize:11, fontWeight:800, textTransform:'none', letterSpacing:0 }}>
+                        {calendar.overdue_count} просрочено
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ background:'var(--surface)', border:'1px solid var(--border)', borderRadius:'var(--radius-lg)', overflow:'hidden', boxShadow:'var(--shadow-sm)', maxHeight:380, overflowY:'auto' }}>
+                    {calendar.items.map((d, i) => {
+                      const dateColor = d.status === 'overdue' || d.status === 'due_today' ? 'var(--error)'
+                        : d.status === 'remind' ? 'var(--warn)' : 'var(--text3)'
+                      const [y, m, day] = (d.deadline_date || '').split('-')
+                      return (
+                        <div key={d.id}
+                          style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 12px', borderBottom: i < calendar.items.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                          <div style={{ flexShrink:0, width:44, textAlign:'center', fontWeight:800, fontSize:13, color:dateColor, fontVariantNumeric:'tabular-nums' }}>
+                            {day}.{m}
+                          </div>
+                          <div style={{ flex:1, minWidth:0, cursor:'pointer' }}
+                            onClick={() => navigate(`/company/${d.company_id}/deadlines`)}>
+                            <div style={{ fontSize:11, fontWeight:700, color:'var(--accent)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                              {d.company_name}
+                            </div>
+                            <div style={{ fontSize:12, color:'var(--text2)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>
+                              {d.icon} {d.title}
+                            </div>
+                          </div>
+                          <button onClick={() => handleCalendarDone(d.id)}
+                            title="Отметить сданным"
+                            style={{ flexShrink:0, background:'var(--success-light)', color:'var(--success)', border:'1px solid var(--border)', borderRadius:'var(--radius-sm)', padding:'4px 9px', fontSize:12, fontWeight:800, cursor:'pointer', fontFamily:'inherit' }}>
+                            ✓
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
               )}
 
               {/* Подсказка */}

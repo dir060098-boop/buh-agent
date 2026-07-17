@@ -31,8 +31,9 @@ from dateutil.relativedelta import relativedelta
 router = APIRouter()
 
 # ── КОНСТАНТЫ СРОКОВ ─────────────────────────────────────
-REMIND_DAY  = 15   # напоминание с 15-го числа
-DEADLINE_DAY = 20  # сдача до 20-го числа
+# Дефолты; у каждого налога может быть свой "day" в TAX_SCHEDULE
+REMIND_BEFORE_DAYS = 5   # напоминание за N дней до срока
+DEADLINE_DAY = 20        # день сдачи по умолчанию
 
 MONTHS_RU = {
     1:'январь', 2:'февраль', 3:'март', 4:'апрель',
@@ -40,29 +41,31 @@ MONTHS_RU = {
     9:'сентябрь', 10:'октябрь', 11:'ноябрь', 12:'декабрь'
 }
 
-# Налоги по режимам
+# Налоги по режимам. "day" — день сдачи в месяце, следующем за периодом.
+# Сроки КР: соцфонд — до 15-го, НДС — до 25-го, остальное — до 20-го.
+# ВАЖНО: даты проверить у практикующего бухгалтера при смене законодательства.
 TAX_SCHEDULE = {
     "ОРН (общий режим)": [
-        {"tax_type": "nds",         "title": "НДС",                   "frequency": "monthly"},
-        {"tax_type": "sales_tax",   "title": "Налог с продаж",         "frequency": "monthly"},
-        {"tax_type": "income_tax",  "title": "Подоходный налог",       "frequency": "monthly"},
-        {"tax_type": "social_fund", "title": "Социальный фонд",        "frequency": "monthly"},
+        {"tax_type": "nds",         "title": "НДС",                   "frequency": "monthly", "day": 25},
+        {"tax_type": "sales_tax",   "title": "Налог с продаж",         "frequency": "monthly", "day": 20},
+        {"tax_type": "income_tax",  "title": "Подоходный налог",       "frequency": "monthly", "day": 20},
+        {"tax_type": "social_fund", "title": "Социальный фонд",        "frequency": "monthly", "day": 15},
         {"tax_type": "annual",      "title": "Годовая декларация",     "frequency": "annual", "month": 3, "day": 1},
     ],
     "Плательщик НДС": [
-        {"tax_type": "nds",         "title": "НДС",                   "frequency": "monthly"},
-        {"tax_type": "sales_tax",   "title": "Налог с продаж",         "frequency": "monthly"},
-        {"tax_type": "income_tax",  "title": "Подоходный налог",       "frequency": "monthly"},
-        {"tax_type": "social_fund", "title": "Социальный фонд",        "frequency": "monthly"},
+        {"tax_type": "nds",         "title": "НДС",                   "frequency": "monthly", "day": 25},
+        {"tax_type": "sales_tax",   "title": "Налог с продаж",         "frequency": "monthly", "day": 20},
+        {"tax_type": "income_tax",  "title": "Подоходный налог",       "frequency": "monthly", "day": 20},
+        {"tax_type": "social_fund", "title": "Социальный фонд",        "frequency": "monthly", "day": 15},
         {"tax_type": "annual",      "title": "Годовая декларация",     "frequency": "annual", "month": 3, "day": 1},
     ],
     "Упрощённая система": [
-        {"tax_type": "unified_tax", "title": "Единый налог",           "frequency": "quarterly"},
-        {"tax_type": "social_fund", "title": "Социальный фонд",        "frequency": "monthly"},
+        {"tax_type": "unified_tax", "title": "Единый налог",           "frequency": "quarterly", "day": 20},
+        {"tax_type": "social_fund", "title": "Социальный фонд",        "frequency": "monthly", "day": 15},
         {"tax_type": "annual",      "title": "Годовая декларация",     "frequency": "annual", "month": 3, "day": 1},
     ],
     "Патент": [
-        {"tax_type": "social_fund", "title": "Социальный фонд",        "frequency": "monthly"},
+        {"tax_type": "social_fund", "title": "Социальный фонд",        "frequency": "monthly", "day": 15},
         {"tax_type": "patent",      "title": "Патент",                  "frequency": "once"},
     ],
 }
@@ -124,17 +127,17 @@ def generate_deadlines_for_company(company: models.Company, db: Session, months_
         freq = tax["frequency"]
 
         if freq == "monthly":
+            dl_day = tax.get("day", DEADLINE_DAY)
             for i in range(months_ahead):
                 # Отчётный период — текущий месяц + i
                 period_date = (today.replace(day=1) + relativedelta(months=i))
-                # Дедлайн — 20-е следующего месяца
+                # Дедлайн — свой день налога в следующем месяце
                 deadline_month = period_date + relativedelta(months=1)
-                dl_date  = deadline_month.replace(day=DEADLINE_DAY)
-                rem_date = deadline_month.replace(day=REMIND_DAY)
+                dl_date  = deadline_month.replace(day=dl_day)
+                rem_date = dl_date - timedelta(days=REMIND_BEFORE_DAYS)
                 period_str = period_date.strftime("%Y-%m")
                 title = f"{tax['title']} за {MONTHS_RU[period_date.month]} {period_date.year}"
 
-                # Не создаём дубли
                 exists = db.query(models.Deadline).filter(
                     models.Deadline.company_id == company.id,
                     models.Deadline.tax_type == tax["tax_type"],
@@ -149,16 +152,24 @@ def generate_deadlines_for_company(company: models.Company, db: Session, months_
                         auto_generated=True
                     ))
                     created.append(title)
+                elif (exists.auto_generated and not exists.is_done
+                      and exists.deadline_date
+                      and exists.deadline_date.date() != dl_date):
+                    # Срок изменился (напр. соцфонд 20-е → 15-е) — исправляем несданные
+                    exists.deadline_date = datetime.combine(dl_date, datetime.min.time())
+                    exists.remind_date   = datetime.combine(rem_date, datetime.min.time())
+                    created.append(f"{title} (срок обновлён → {dl_date.strftime('%d.%m')})")
 
         elif freq == "quarterly":
+            dl_day = tax.get("day", DEADLINE_DAY)
             for i in range(0, months_ahead, 3):
                 period_date = (today.replace(day=1) + relativedelta(months=i))
                 # Начало квартала
                 q_start_month = ((period_date.month - 1) // 3) * 3 + 1
                 q_start = period_date.replace(month=q_start_month, day=1)
                 q_end   = q_start + relativedelta(months=3) - timedelta(days=1)
-                dl_date  = (q_end + relativedelta(months=1)).replace(day=DEADLINE_DAY)
-                rem_date = (q_end + relativedelta(months=1)).replace(day=REMIND_DAY)
+                dl_date  = (q_end + relativedelta(months=1)).replace(day=dl_day)
+                rem_date = dl_date - timedelta(days=REMIND_BEFORE_DAYS)
                 q_num    = (q_start_month - 1) // 3 + 1
                 period_str = f"{q_start.year}-Q{q_num}"
                 title = f"{tax['title']} за Q{q_num} {q_start.year}"
@@ -285,6 +296,41 @@ def active_deadlines_summary(
     result = [deadline_to_dict(d) for d in deadlines]
     active = [d for d in result if d["status"] in ("remind", "due_today", "overdue")]
     return {"active": active, "total_open": len(result)}
+
+@router.get("/calendar/all")
+def calendar_all(
+    days_ahead: int = 30,
+    db: Session = Depends(get_db),
+    user = Depends(get_current_user)
+):
+    """Сквозной календарь: несданные дедлайны ВСЕХ компаний пользователя —
+    просроченные + ближайшие days_ahead дней, отсортированы по дате."""
+    companies = db.query(models.Company).filter(
+        models.Company.owner_id == user.id
+    ).all()
+    if not companies:
+        return {"items": [], "overdue_count": 0}
+
+    comp_names = {c.id: c.name for c in companies}
+    horizon = datetime.combine(date.today() + timedelta(days=days_ahead),
+                               datetime.max.time())
+
+    deadlines = db.query(models.Deadline).filter(
+        models.Deadline.company_id.in_(list(comp_names.keys())),
+        models.Deadline.is_done == False,  # noqa: E712
+        models.Deadline.deadline_date <= horizon,
+    ).order_by(models.Deadline.deadline_date).limit(200).all()
+
+    items = []
+    overdue = 0
+    for d in deadlines:
+        item = deadline_to_dict(d)
+        item["company_name"] = comp_names.get(d.company_id, "")
+        if item["status"] == "overdue":
+            overdue += 1
+        items.append(item)
+    return {"items": items, "overdue_count": overdue}
+
 
 @router.get("/{company_id}")
 def list_deadlines(
